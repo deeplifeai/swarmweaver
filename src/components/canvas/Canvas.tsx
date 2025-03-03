@@ -288,11 +288,7 @@ export function FlowCanvas() {
       useAgentStore.getState().addNode({
         type: 'agent',
         position,
-        data: {
-          ...data,
-          inputs: [],
-          outputs: []
-        }
+        data
       });
     },
     [reactFlowWrapper]

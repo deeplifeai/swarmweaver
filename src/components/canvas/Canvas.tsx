@@ -1,6 +1,6 @@
-
 import React, { useCallback, useRef, useState } from 'react';
-import ReactFlow, {
+import {
+  ReactFlow,
   ReactFlowProvider,
   Panel,
   useNodesState,
@@ -13,14 +13,13 @@ import ReactFlow, {
   useReactFlow,
   NodeTypes,
 } from '@xyflow/react';
-import 'reactflow/dist/style.css';
+import '@xyflow/react/dist/style.css';
 import { toast } from 'sonner';
 import { AgentNode } from './AgentNode';
 import { useAgentStore } from '@/store/agentStore';
 import { generateAgentResponse } from '@/services/ai-service';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 import { AgentExecutionResult } from '@/types/agent';
@@ -43,7 +42,6 @@ export function FlowCanvas() {
   const executionResults = useAgentStore((state) => state.executionResults);
   const { setViewport } = useReactFlow();
 
-  // Sync store state with ReactFlow state
   React.useEffect(() => {
     setNodes(storeNodes.map(node => ({
       id: node.id,
@@ -104,7 +102,6 @@ export function FlowCanvas() {
   };
 
   const processNode = async (nodeId: string, processedNodes: Set<string>): Promise<AgentExecutionResult> => {
-    // Prevent processing the same node twice
     if (processedNodes.has(nodeId)) {
       return executionResults[nodeId] || { 
         nodeId, 
@@ -123,7 +120,6 @@ export function FlowCanvas() {
       };
     }
 
-    // Mark this node as being processed
     useAgentStore.getState().setExecutionResult({
       nodeId,
       output: '',
@@ -131,7 +127,6 @@ export function FlowCanvas() {
     });
 
     try {
-      // Process dependencies first
       const dependencies = getNodeDependencies(nodeId);
       const dependencyOutputs: string[] = [];
       
@@ -143,20 +138,16 @@ export function FlowCanvas() {
         dependencyOutputs.push(result.output);
       }
 
-      // Now process this node
       let output = '';
       
       if (node.type === 'output') {
-        // Special handling for output node - just collect inputs
         output = [...node.data.inputs, ...dependencyOutputs].join('\n\n---\n\n');
       } else {
-        // Regular agent node
         const agent = getNodeAgentConfig(nodeId);
         if (!agent) {
           throw new Error('No agent configuration found for this node');
         }
 
-        // Combine user inputs with dependency outputs
         const combinedInput = [
           ...node.data.inputs,
           ...dependencyOutputs
@@ -166,7 +157,6 @@ export function FlowCanvas() {
           throw new Error('No input provided for agent');
         }
 
-        // Call the AI service
         output = await generateAgentResponse(
           agent.provider,
           agent.model,
@@ -175,13 +165,9 @@ export function FlowCanvas() {
         );
       }
 
-      // Store result in node's outputs
       useAgentStore.getState().setNodeOutput(nodeId, output);
-      
-      // Mark as processed
       processedNodes.add(nodeId);
       
-      // Update execution result
       const result = {
         nodeId,
         output,
@@ -210,7 +196,6 @@ export function FlowCanvas() {
       setIsRunning(true);
       useAgentStore.getState().clearExecutionResults();
       
-      // Find output nodes
       const outputNodes = storeNodes.filter(node => node.data.label === 'Output Box');
       
       if (outputNodes.length === 0) {
@@ -219,7 +204,6 @@ export function FlowCanvas() {
       
       const processedNodes = new Set<string>();
       
-      // Process each output node and its dependencies
       for (const outputNode of outputNodes) {
         await processNode(outputNode.id, processedNodes);
       }
@@ -235,7 +219,6 @@ export function FlowCanvas() {
 
   const downloadOutput = async () => {
     try {
-      // Find output nodes
       const outputNodes = storeNodes.filter(node => node.data.label === 'Output Box');
       
       if (outputNodes.length === 0) {
@@ -244,7 +227,6 @@ export function FlowCanvas() {
       
       const zip = new JSZip();
       
-      // Add each output to the zip
       outputNodes.forEach((node, index) => {
         const outputs = node.data.outputs;
         if (outputs.length > 0) {
@@ -256,13 +238,10 @@ export function FlowCanvas() {
         }
       });
       
-      // Add a readme file
       zip.file('README.txt', 'This file contains outputs from your AI agent swarm.\nCreated with SwarmWeaver.');
       
-      // Generate the zip
       const content = await zip.generateAsync({ type: 'blob' });
       
-      // Save the file
       saveAs(content, `${downloadFilename}.zip`);
       setDownloadDialogOpen(false);
       
@@ -336,7 +315,7 @@ export function FlowCanvas() {
           fitView
           className="bg-slate-50"
         >
-          <Background pattern="dots" size={20} color="#e2e8f0" />
+          <Background variant="dots" gap={20} color="#e2e8f0" />
           <Controls />
           <Panel position="top-right" className="flex gap-2">
             <Button

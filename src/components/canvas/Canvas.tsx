@@ -1,3 +1,4 @@
+
 import React, { useCallback, useRef, useState } from 'react';
 import {
   ReactFlow,
@@ -12,6 +13,7 @@ import {
   Edge,
   useReactFlow,
   NodeTypes,
+  BackgroundVariant,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { toast } from 'sonner';
@@ -103,12 +105,12 @@ export function FlowCanvas() {
   };
 
   const processNode = async (nodeId: string, processedNodes: Set<string>): Promise<AgentExecutionResult> => {
+    // If we've already processed this node, return its cached result
     if (processedNodes.has(nodeId)) {
-      return executionResults[nodeId] || { 
-        nodeId, 
-        output: '', 
-        status: 'completed' 
-      };
+      const cachedResult = executionResults[nodeId];
+      if (cachedResult) {
+        return cachedResult;
+      }
     }
 
     const node = storeNodes.find(n => n.id === nodeId);
@@ -121,6 +123,7 @@ export function FlowCanvas() {
       };
     }
 
+    // Mark node as running
     useAgentStore.getState().setExecutionResult({
       nodeId,
       output: '',
@@ -128,19 +131,21 @@ export function FlowCanvas() {
     });
 
     try {
+      // Process dependencies first
       const dependencies = getNodeDependencies(nodeId);
-      const dependencyOutputs: string[] = [];
-      
-      for (const depNodeId of dependencies) {
-        const result = await processNode(depNodeId, processedNodes);
-        if (result.status === 'error') {
-          throw new Error(`Dependency error: ${result.error}`);
-        }
-        dependencyOutputs.push(result.output);
+      const dependencyResults = await Promise.all(
+        dependencies.map(depId => processNode(depId, processedNodes))
+      );
+
+      // Check if any dependencies failed
+      const failedDependency = dependencyResults.find(result => result.status === 'error');
+      if (failedDependency) {
+        throw new Error(`Dependency error: ${failedDependency.error}`);
       }
 
+      const dependencyOutputs = dependencyResults.map(result => result.output);
+
       let output = '';
-      
       if (node.type === 'output') {
         output = [...node.data.inputs, ...dependencyOutputs].join('\n\n---\n\n');
       } else {
@@ -338,11 +343,7 @@ export function FlowCanvas() {
           fitView
           className="bg-slate-50"
         >
-          <Background 
-            variant="dots"
-            gap={20}
-            color="#e2e8f0"
-          />
+          <Background variant={BackgroundVariant.Dots} gap={20} color="#e2e8f0" />
           <Controls />
           <Panel position="top-right" className="flex gap-2">
             <Button
@@ -352,6 +353,28 @@ export function FlowCanvas() {
               className="shadow-md hover:shadow-lg transition-all"
             >
               {isRunning ? 'Running...' : 'Run Canvas'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => useAgentStore.getState().saveCanvasState()}
+              className="shadow-md hover:shadow-lg transition-all"
+            >
+              Save Canvas
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const selectedNode = nodes.find(n => n.selected);
+                if (selectedNode && selectedNode.data.agentId) {
+                  useAgentStore.getState().saveAgentToLibrary(selectedNode);
+                  toast.success('Agent saved to library');
+                } else {
+                  toast.error('Please select an agent node first');
+                }
+              }}
+              className="shadow-md hover:shadow-lg transition-all"
+            >
+              Save Agent to Library
             </Button>
             <Button
               variant="outline"

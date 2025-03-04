@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { Agent, AgentNode, AgentEdge, AgentExecutionResult, AIProvider, AIModel } from '@/types/agent';
 
@@ -38,7 +37,7 @@ interface AgentState {
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-export const useAgentStore = create<AgentState>((set) => ({
+export const useAgentStore = create<AgentState>((set, get) => ({
   agents: [],
   nodes: [],
   edges: [],
@@ -121,4 +120,37 @@ export const useAgentStore = create<AgentState>((set) => ({
   setApiKey: (provider, key) => set((state) => ({
     apiKey: { ...state.apiKey, [provider]: key }
   })),
+  
+  saveAgentToLibrary: (node: AgentNode) => {
+    if (!node.data.agentId) {
+      throw new Error('Node is not an agent');
+    }
+
+    const agent = get().agents.find(a => a.id === node.data.agentId);
+    if (!agent) {
+      throw new Error('Agent not found');
+    }
+
+    // Create a new agent with the same configuration
+    const newAgent = {
+      name: `${agent.name} (Copy)`,
+      systemPrompt: agent.systemPrompt,
+      provider: agent.provider,
+      model: agent.model,
+      color: agent.color
+    };
+
+    get().addAgent(newAgent);
+  },
+
+  saveCanvasState: () => {
+    const state = {
+      nodes: get().nodes,
+      edges: get().edges,
+      agents: get().agents
+    };
+    
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    saveAs(blob, 'canvas-state.json');
+  },
 }));

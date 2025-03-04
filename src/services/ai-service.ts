@@ -34,15 +34,40 @@ async function callOpenAI(
   userPrompt: string
 ): Promise<string> {
   try {
+    // Base payload with required parameters
     const payload: any = {
       model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 1000, // Correct parameter name for all OpenAI models
+      messages: []
     };
+
+    // Handle messages based on model type
+    // o1 and o3 models don't support 'system' role
+    if (model.toString().startsWith('o1') || model.toString().startsWith('o3')) {
+      // For o1/o3 models, convert system message to a user message prefix
+      if (systemPrompt) {
+        payload.messages.push({ 
+          role: 'user', 
+          content: `${systemPrompt}\n\n${userPrompt}` 
+        });
+      } else {
+        payload.messages.push({ role: 'user', content: userPrompt });
+      }
+    } else {
+      // For other models, use standard system and user messages
+      if (systemPrompt) {
+        payload.messages.push({ role: 'system', content: systemPrompt });
+      }
+      payload.messages.push({ role: 'user', content: userPrompt });
+    }
+
+    // Add max_completion_tokens for all models
+    payload.max_completion_tokens = 1000;
+
+    // Only add temperature for models that support it
+    // Reasoning models (o1, o1-mini, o3-mini) don't support temperature
+    if (!model.toString().startsWith('o1') && !model.toString().startsWith('o3')) {
+      payload.temperature = 0.7;
+    }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -100,7 +125,7 @@ async function callPerplexity(
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.7,
-        max_tokens: 1000,
+        max_tokens: 1000, // Perplexity API uses max_tokens
       }),
     });
 

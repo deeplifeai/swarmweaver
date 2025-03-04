@@ -62,6 +62,7 @@ export function FlowCanvas() {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      console.info('onConnect called with connection:', connection);
       useAgentStore.getState().addEdge({
         source: connection.source as string,
         target: connection.target as string,
@@ -73,6 +74,7 @@ export function FlowCanvas() {
 
   const onEdgeDelete = useCallback(
     (edge: Edge) => {
+      console.info('onEdgeDelete called with edge:', edge);
       useAgentStore.getState().removeEdge(edge.id);
     },
     []
@@ -80,6 +82,7 @@ export function FlowCanvas() {
 
   const onNodeDragStop = useCallback(
     (event: React.MouseEvent, node: any) => {
+      console.info('onNodeDragStop triggered for node:', node);
       useAgentStore.getState().updateNode(node.id, {
         position: node.position,
       });
@@ -89,6 +92,7 @@ export function FlowCanvas() {
 
   const onNodeDelete = useCallback(
     (event: React.MouseEvent, node: any) => {
+      console.info('onNodeDelete triggered for node:', node);
       useAgentStore.getState().removeNode(node.id);
     },
     []
@@ -96,6 +100,7 @@ export function FlowCanvas() {
 
   const onNodesDelete = useCallback(
     (nodes: any[]) => {
+      console.info('onNodesDelete triggered for nodes:', nodes.map(n => n.id));
       nodes.forEach(node => {
         useAgentStore.getState().removeNode(node.id);
       });
@@ -124,21 +129,26 @@ export function FlowCanvas() {
   };
 
   const processNode = async (nodeId: string, processedNodes: Set<string>): Promise<AgentExecutionResult> => {
+    console.info(`Starting processing for node ${nodeId}`);
+
     // If we've already processed this node, return its cached result
     if (processedNodes.has(nodeId)) {
       const cachedResult = executionResults[nodeId];
       if (cachedResult) {
+        console.info(`Node ${nodeId} already processed. Returning cached result.`);
         return cachedResult;
       }
     }
 
     const node = storeNodes.find(n => n.id === nodeId);
     if (!node) {
+      const errorMsg = 'Node not found';
+      console.error(`Error: ${errorMsg} for node ${nodeId}`);
       return {
         nodeId,
         output: '',
         status: 'error',
-        error: 'Node not found'
+        error: errorMsg
       };
     }
 
@@ -152,6 +162,7 @@ export function FlowCanvas() {
     try {
       // Process dependencies first
       const dependencies = getNodeDependencies(nodeId);
+      console.info(`Node ${nodeId} dependencies:`, dependencies);
       const dependencyResults = await Promise.all(
         dependencies.map(depId => processNode(depId, processedNodes))
       );
@@ -170,8 +181,11 @@ export function FlowCanvas() {
       } else {
         const agent = getNodeAgentConfig(nodeId);
         if (!agent) {
-          throw new Error('No agent configuration found for this node');
+          const errorMsg = 'No agent configuration found for this node';
+          console.error(`Error in node ${nodeId}: ${errorMsg}`);
+          throw new Error(errorMsg);
         }
+        console.info(`Node ${nodeId} using agent ${agent.id || 'unknown'} (provider: ${agent.provider})`);
 
         const combinedInput = [
           ...node.data.inputs,
@@ -182,12 +196,14 @@ export function FlowCanvas() {
           throw new Error('No input provided for agent');
         }
 
+        console.info(`Generating agent response for node ${nodeId}`);
         output = await generateAgentResponse(
           agent.provider,
           agent.model,
           agent.systemPrompt,
           combinedInput
         );
+        console.info(`Agent response received for node ${nodeId}`);
       }
 
       useAgentStore.getState().setNodeOutput(nodeId, output);
@@ -200,6 +216,7 @@ export function FlowCanvas() {
       };
       
       useAgentStore.getState().setExecutionResult(result);
+      console.info(`Node ${nodeId} processed successfully`);
       return result;
     } catch (error: any) {
       const result = {
@@ -217,23 +234,20 @@ export function FlowCanvas() {
   };
 
   const runCanvas = async () => {
+    console.info('Starting canvas run with', storeNodes.length, 'nodes');
     try {
-      setIsRunning(true);
-      useAgentStore.getState().clearExecutionResults();
-      
-      const outputNodes = storeNodes.filter(node => node.data.label === 'Output Box');
-      
-      if (outputNodes.length === 0) {
-        throw new Error('No output node found in canvas');
-      }
-      
       const processedNodes = new Set<string>();
       
-      for (const outputNode of outputNodes) {
+      // Log each output node to be processed
+      console.info('Processing output nodes:', storeNodes.filter(n => n.data.label === 'Output Box').map(n => n.id));
+      
+      for (const outputNode of storeNodes.filter(n => n.data.label === 'Output Box')) {
+        console.info(`Processing output node: ${outputNode.id}`);
         await processNode(outputNode.id, processedNodes);
       }
       
       toast.success('Canvas execution completed');
+      console.info('Canvas run completed successfully');
     } catch (error: any) {
       toast.error(`Failed to run canvas: ${error.message}`);
       console.error('Run canvas error:', error);
@@ -301,13 +315,15 @@ export function FlowCanvas() {
 
   const onDragOver = useCallback((event: React.DragEvent) => {
     event.preventDefault();
+    console.info('onDragOver triggered', event);
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
-
+      console.info('onDrop triggered', event);
+      
       const reactFlowBounds = reactFlowWrapper.current?.getBoundingClientRect();
       const reactFlow = document.querySelector('.react-flow');
       
@@ -341,6 +357,7 @@ export function FlowCanvas() {
           outputs: []
         }
       });
+      console.info('Node added via drop at position:', position, 'with data:', data);
     },
     [reactFlowWrapper]
   );

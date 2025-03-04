@@ -3,6 +3,7 @@ import { Agent, AgentNode, AgentEdge, AgentExecutionResult, AIProvider, AIModel 
 import { saveAs } from 'file-saver';
 import { encryptData, decryptData } from '@/utils/encryption';
 import { toast } from 'sonner';
+import { useState } from 'react';
 
 interface AgentState {
   agents: Agent[];
@@ -114,11 +115,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     agents: [...state.agents, { ...agent, id: generateId() }]
   })),
   
-  updateAgent: (id, updates) => set((state) => ({
-    agents: state.agents.map((agent) => 
+  updateAgent: (id, updates) => set((state) => {
+    // Update the agents
+    const updatedAgents = state.agents.map((agent) => 
       agent.id === id ? { ...agent, ...updates } : agent
-    )
-  })),
+    );
+    
+    // If color was updated, also update all nodes that reference this agent
+    if ('color' in updates) {
+      const updatedNodes = state.nodes.map((node) => 
+        node.data?.agentId === id 
+          ? { ...node, data: { ...node.data, color: updates.color } } 
+          : node
+      );
+      
+      return {
+        agents: updatedAgents,
+        nodes: updatedNodes
+      };
+    }
+    
+    return {
+      agents: updatedAgents
+    };
+  }),
   
   removeAgent: (id) => set((state) => ({
     agents: state.agents.filter((agent) => agent.id !== id)
@@ -195,7 +215,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             ...node, 
             data: { 
               ...node.data, 
-              inputs: [...(node.data.inputs || []), input] 
+              inputs: [input]
             } 
           } 
         : node
@@ -253,10 +273,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       systemPrompt: agent.systemPrompt,
       provider: agent.provider,
       model: agent.model,
-      color: agent.color
+      color: agent.color,
+      savedToLibrary: true
     };
 
+    // Add the agent to the store
     get().addAgent(newAgent);
+    toast.success(`Agent "${agent.name}" saved to library`);
   },
 
   saveCanvasState: () => {

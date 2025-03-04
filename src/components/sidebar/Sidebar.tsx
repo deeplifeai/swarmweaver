@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { useAgentStore } from '@/store/agentStore';
-import { Plus, Settings } from 'lucide-react';
+import { Plus, Settings, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { DraggableAgentItem } from './DraggableAgentItem';
@@ -14,11 +13,23 @@ export function Sidebar() {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const [isAgentDialogOpen, setIsAgentDialogOpen] = React.useState(false);
   const [isKeysDialogOpen, setIsKeysDialogOpen] = React.useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = React.useState(true);
+  const [isSavedLibraryOpen, setIsSavedLibraryOpen] = React.useState(true);
   
   const agents = useAgentStore((state) => state.agents);
+  const regularAgents = agents.filter(agent => agent.savedToLibrary !== true);
+  const savedAgents = agents.filter(agent => agent.savedToLibrary === true);
 
   const toggleSidebar = () => {
     setIsCollapsed(!isCollapsed);
+  };
+
+  const toggleLibrary = () => {
+    setIsLibraryOpen(!isLibraryOpen);
+  };
+
+  const toggleSavedLibrary = () => {
+    setIsSavedLibraryOpen(!isSavedLibraryOpen);
   };
 
   return (
@@ -57,8 +68,91 @@ export function Sidebar() {
           
           <Separator className={cn("my-4", isCollapsed && "w-8")} />
           
-          {/* User-defined agents */}
-          {agents.map((agent) => (
+          {/* Agent Library Section */}
+          {!isCollapsed && (
+            <div className="mb-2">
+              <div
+                className="flex items-center cursor-pointer hover:text-primary"
+                onClick={toggleLibrary}
+              >
+                {isLibraryOpen ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronRight className="h-4 w-4 mr-1" />}
+                <span className="font-medium">Agent Library</span>
+              </div>
+
+              {isLibraryOpen && (
+                <div className="mt-2 space-y-2">
+                  {/* User-defined agents */}
+                  {regularAgents.map((agent) => (
+                    <DraggableAgentItem
+                      key={agent.id}
+                      label={agent.name}
+                      color={agent.color}
+                      isCollapsed={isCollapsed}
+                      data={{
+                        label: agent.name,
+                        agentId: agent.id,
+                        inputs: [],
+                        outputs: [],
+                        color: agent.color
+                      }}
+                      agentId={agent.id}
+                      isUserDefined
+                    />
+                  ))}
+                  
+                  {regularAgents.length === 0 && (
+                    <div className="text-center py-2 text-gray-500 text-sm">
+                      No agents created yet
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Saved Agent Library Section */}
+          {!isCollapsed && (
+            <div className="mb-2">
+              <div
+                className="flex items-center cursor-pointer hover:text-primary"
+                onClick={toggleSavedLibrary}
+              >
+                {isSavedLibraryOpen ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronRight className="h-4 w-4 mr-1" />}
+                <span className="font-medium">Saved Agent Library</span>
+              </div>
+
+              {isSavedLibraryOpen && (
+                <div className="mt-2 space-y-2">
+                  {savedAgents.map((agent) => (
+                    <DraggableAgentItem
+                      key={agent.id}
+                      label={agent.name}
+                      color={agent.color}
+                      isCollapsed={isCollapsed}
+                      data={{
+                        label: agent.name,
+                        agentId: agent.id,
+                        inputs: [],
+                        outputs: [],
+                        color: agent.color
+                      }}
+                      agentId={agent.id}
+                      isUserDefined
+                    />
+                  ))}
+                  
+                  {savedAgents.length === 0 && (
+                    <div className="text-center py-2 text-gray-500 text-sm">
+                      No saved agents yet
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Show collapsed view for mobile */}
+          {isCollapsed && regularAgents.map((agent) => (
             <DraggableAgentItem
               key={agent.id}
               label={agent.name}
@@ -71,14 +165,10 @@ export function Sidebar() {
                 outputs: [],
                 color: agent.color
               }}
+              agentId={agent.id}
+              isUserDefined
             />
           ))}
-          
-          {agents.length === 0 && !isCollapsed && (
-            <div className="text-center py-8 text-gray-500 text-sm">
-              No agents created yet
-            </div>
-          )}
         </div>
       </ScrollArea>
       

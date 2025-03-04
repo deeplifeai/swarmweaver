@@ -1,4 +1,3 @@
-
 export type AIModel = 
   // OpenAI models
   | 'gpt-4.5-preview' 
@@ -21,6 +20,7 @@ export interface Agent {
   provider: AIProvider;
   model: AIModel;
   color: string;
+  savedToLibrary?: boolean;
 }
 
 export interface AgentNode {

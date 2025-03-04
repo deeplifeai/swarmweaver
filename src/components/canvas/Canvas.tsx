@@ -37,6 +37,7 @@ export function FlowCanvas() {
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadFilename, setDownloadFilename] = useState('swarm-output');
   const [downloadFormat, setDownloadFormat] = useState<'json' | 'text'>('json');
+  const [outputsAvailable, setOutputsAvailable] = useState(false);
 
   const storeNodes = useAgentStore((state) => state.nodes);
   const storeEdges = useAgentStore((state) => state.edges);
@@ -367,6 +368,380 @@ export function FlowCanvas() {
     return storeNodes.filter(node => node.data.label === 'Output Box');
   }, [storeNodes]);
 
+  const testDataFlowConnection = (sourceId: string, targetId: string) => {
+    const sourceNode = storeNodes.find(n => n.id === sourceId);
+    const targetNode = storeNodes.find(n => n.id === targetId);
+    
+    if (!sourceNode || !targetNode) {
+      console.error(`❌ Test failed: Could not find nodes for source ${sourceId} or target ${targetId}`);
+      return false;
+    }
+    
+    console.group(`🔍 Testing connection: ${sourceNode.data.label} (#${sourceId}) → ${targetNode.data.label} (#${targetId})`);
+    
+    // Check if source has outputs
+    if (sourceNode.data.outputs.length === 0) {
+      console.warn(`⚠️ Source node ${sourceNode.data.label} (#${sourceId}) has no outputs yet`);
+      console.log(`ℹ️ This is normal if you haven't run the canvas yet. The connection is configured correctly, but no data has flowed through it.`);
+      console.log(`ℹ️ To see actual data flow:`);
+      console.log(`   1. Click "Run Canvas" to generate outputs for all nodes`);
+      console.log(`   2. Or use "Generate Test Data" to create sample outputs`);
+      console.log(`   3. Then run this test again to verify data is flowing properly`);
+      
+      // Check if the connection is properly configured at least
+      const targetDeps = getNodeDependencies(targetId);
+      if (targetDeps.includes(sourceId)) {
+        console.log(`✅ Connection configuration looks good - target node lists source as a dependency`);
+      } else {
+        console.error(`❌ Connection may be improperly configured - target node does not list source as a dependency`);
+      }
+      
+      console.groupEnd();
+      return false;
+    }
+    
+    // Log the source's last output
+    const sourceOutput = sourceNode.data.outputs[sourceNode.data.outputs.length - 1];
+    console.log(`📤 Source output: "${sourceOutput.substring(0, 100)}${sourceOutput.length > 100 ? '...' : ''}"`);
+    
+    // Check if the output is passed to the target's dependencies
+    const targetDependencies = getNodeDependencies(targetId);
+    if (!targetDependencies.includes(sourceId)) {
+      console.error(`❌ Dependency configuration error: ${targetId} doesn't list ${sourceId} as a dependency`);
+      console.groupEnd();
+      return false;
+    }
+    
+    console.log(`✅ Connection verified. The output from ${sourceNode.data.label} should be passed to ${targetNode.data.label}`);
+    console.groupEnd();
+    return true;
+  };
+
+  const testAllConnections = () => {
+    console.group('🔍 Testing All Connections');
+    
+    if (storeEdges.length === 0) {
+      console.warn('⚠️ No connections to test');
+      console.groupEnd();
+      toast.warning('No connections found in the canvas to test');
+      return;
+    }
+    
+    console.log(`Testing ${storeEdges.length} connections...`);
+    console.log(`ℹ️ Note: If you haven't run the canvas yet, connections will show as "no outputs yet" - this is normal.`);
+    
+    const results = storeEdges.map(edge => {
+      console.log(`Testing: ${edge.source} → ${edge.target}`);
+      return testDataFlowConnection(edge.source, edge.target);
+    });
+    
+    const passCount = results.filter(r => r === true).length;
+    console.log(`✅ Test results: ${passCount}/${results.length} connections verified`);
+    
+    if (passCount === results.length) {
+      toast.success(`All ${passCount} connections are properly configured`);
+    } else {
+      toast.warning(`${results.length - passCount} connection issues found. Check console for details.`);
+    }
+    
+    console.groupEnd();
+  };
+
+  // Generate test outputs for nodes to facilitate testing without running the full canvas
+  const generateTestOutputs = () => {
+    console.group('🧪 Generating test outputs for nodes');
+    
+    if (storeNodes.length === 0) {
+      console.warn('⚠️ No nodes found in the canvas');
+      console.groupEnd();
+      toast.warning('No nodes found in the canvas');
+      return;
+    }
+    
+    // First identify multi-input nodes to highlight them in testing
+    const nodeConnections = new Map<string, string[]>();
+    
+    // Build a map of node ID to array of source node IDs
+    storeEdges.forEach(edge => {
+      if (!nodeConnections.has(edge.target)) {
+        nodeConnections.set(edge.target, []);
+      }
+      nodeConnections.get(edge.target)?.push(edge.source);
+    });
+    
+    // Find agent nodes (not output nodes) with multiple inputs
+    const multiInputAgents = storeNodes.filter(node => 
+      node.data.label !== 'Output Box' && 
+      nodeConnections.has(node.id) && 
+      nodeConnections.get(node.id)!.length > 1
+    );
+    
+    if (multiInputAgents.length > 0) {
+      console.info(`🔍 Found ${multiInputAgents.length} agent nodes with multiple inputs:`);
+      multiInputAgents.forEach(node => {
+        const sources = nodeConnections.get(node.id) || [];
+        console.info(`   - ${node.data.label} (${node.id}) has ${sources.length} input sources`);
+      });
+    } else {
+      console.info('ℹ️ No agent nodes with multiple inputs found in the canvas');
+    }
+    
+    // First pass: Generate mock outputs for all non-output nodes
+    storeNodes.forEach(node => {
+      // Skip nodes that already have outputs
+      if (node.data.outputs && node.data.outputs.length > 0) {
+        console.log(`ℹ️ Node ${node.id} (${node.data.label}) already has outputs - preserving existing data`);
+        return;
+      }
+      
+      // Skip output nodes - we'll handle them in a later pass
+      if (node.data.label === 'Output Box') {
+        return;
+      }
+      
+      // Create a sample output based on node type with clear visual markers
+      let sampleOutput = '';
+      
+      if (node.data.label === 'Input Box') {
+        // For input nodes, include a distinctive marker in the output
+        sampleOutput = `📥 INPUT FROM: ${node.data.label} (ID: ${node.id})\n\n` +
+          `This is sample input text for testing data propagation through the canvas.\n\n` +
+          `When you see this text in another node, it means the data successfully flowed ` +
+          `from this input node to that node.\n\n` +
+          `----------------\n` +
+          `Node Type: Input Box\n` +
+          `Node ID: ${node.id}\n` +
+          `Unique marker: INPUT-${node.id.substring(0, 4)}`;
+      } else {
+        // For agent nodes, create mock output that's tailored to the agent's label
+        let roleSpecificContent = '';
+        
+        // Generate content based on the agent's name/label
+        const label = node.data.label.toLowerCase();
+        if (label.includes('formulation') || label.includes('planner')) {
+          roleSpecificContent = `Here is a plan I've formulated based on the input:\n\n` +
+            `1. Analyze the requirements\n` +
+            `2. Break down the problem into steps\n` +
+            `3. Assign appropriate agents to each step\n` +
+            `4. Monitor progress and adjust as needed`;
+        } else if (label.includes('research') || label.includes('search')) {
+          roleSpecificContent = `Here are my research findings:\n\n` +
+            `- The topic has several key dimensions\n` +
+            `- Recent developments include...\n` +
+            `- Important considerations for next steps are...`;
+        } else if (label.includes('code') || label.includes('dev') || label.includes('program')) {
+          roleSpecificContent = `\`\`\`python\n` +
+            `def process_data(input_text):\n` +
+            `    # This is sample code output\n` +
+            `    result = input_text.upper()\n` +
+            `    return f"Processed: {result}"\n` +
+            `\`\`\`\n\n` +
+            `This function demonstrates basic text processing.`;
+        } else if (label.includes('review') || label.includes('check') || label.includes('test')) {
+          roleSpecificContent = `Review completed. Here are my observations:\n\n` +
+            `✅ Structure looks good\n` +
+            `⚠️ Some areas need improvement\n` +
+            `❌ Found potential issues that need addressing`;
+        } else {
+          roleSpecificContent = `Here is my analysis of the provided information:\n\n` +
+            `The key points are:\n` +
+            `1. First important finding\n` +
+            `2. Second critical observation\n` +
+            `3. Recommendations for next steps`;
+        }
+        
+        sampleOutput = `🤖 OUTPUT FROM: ${node.data.label} (ID: ${node.id})\n\n` +
+          roleSpecificContent + `\n\n` +
+          `----------------\n` +
+          `Node Type: Agent\n` +
+          `Node ID: ${node.id}\n` +
+          `Unique marker: AGENT-${node.id.substring(0, 4)}\n` +
+          `Timestamp: ${new Date().toISOString()}`;
+      }
+      
+      console.log(`📝 Generated test output for ${node.data.label} (${node.id})`);
+      
+      // Update the node's outputs directly
+      useAgentStore.getState().setNodeOutput(node.id, sampleOutput);
+    });
+    
+    // Second pass: Process multi-input agent nodes to show concatenation
+    if (multiInputAgents.length > 0) {
+      console.log('🔀 Processing multi-input agent nodes...');
+      
+      multiInputAgents.forEach(agent => {
+        // Get the sources that feed into this agent
+        const sourceIds = nodeConnections.get(agent.id) || [];
+        
+        // Collect outputs from source nodes
+        const sourceData = sourceIds.map(sourceId => {
+          const sourceNode = storeNodes.find(n => n.id === sourceId);
+          if (!sourceNode) return null;
+          
+          const sourceName = sourceNode.data.label;
+          
+          if (!sourceNode.data.outputs || sourceNode.data.outputs.length === 0) {
+            return {
+              nodeId: sourceId,
+              nodeName: sourceName,
+              output: null
+            };
+          }
+          
+          return {
+            nodeId: sourceId,
+            nodeName: sourceName,
+            output: sourceNode.data.outputs[sourceNode.data.outputs.length - 1]
+          };
+        }).filter(Boolean);
+        
+        // Count how many sources have outputs
+        const sourcesWithOutputs = sourceData.filter(src => src && src.output).length;
+        
+        if (sourcesWithOutputs === 0) {
+          console.warn(`⚠️ Agent ${agent.id} has ${sourceIds.length} inputs, but none have outputs yet`);
+          return;
+        }
+        
+        // Generate a special marker to show this is a multi-input test
+        const headerText = `🔀 MULTI-INPUT AGENT TEST: ${agent.data.label} (ID: ${agent.id})\n\n` +
+          `This agent receives inputs from ${sourcesWithOutputs} of ${sourceIds.length} source nodes.\n\n` +
+          `During normal canvas execution, these inputs would be CONCATENATED before being sent to this agent.\n` +
+          `The concatenated input would look like this:\n\n` +
+          `=============================================================\n\n`;
+        
+        // Collect the source outputs that would be concatenated
+        const sourceOutputs = sourceData
+          .filter(src => src && src.output)
+          .map(src => src.output);
+        
+        if (sourceOutputs.length > 0) {
+          // Format using our concatenation function
+          const concatenatedPreview = formatConcatenatedInputs(sourceOutputs);
+          
+          // Create a special output showing what this agent will receive as input when run
+          const previewOutput = headerText + concatenatedPreview + 
+            `\n\n=============================================================\n\n` +
+            `This preview helps you verify that multiple inputs are correctly concatenated.\n` +
+            `When you run the canvas, this agent will receive all inputs combined as shown above.\n\n` +
+            `Look for the unique markers from each input source to confirm proper data flow.`;
+          
+          // Override the previously generated output to show the multi-input test
+          console.log(`🔀 Created multi-input test preview for ${agent.data.label} (${agent.id})`);
+          useAgentStore.getState().setNodeOutput(agent.id, previewOutput);
+        }
+      });
+    }
+    
+    // Third pass: Process output nodes to collect from dependencies
+    const outputNodes = storeNodes.filter(node => node.data.label === 'Output Box');
+    if (outputNodes.length > 0) {
+      console.log('📦 Processing output nodes to collect inputs from dependencies...');
+      
+      outputNodes.forEach(outputNode => {
+        const dependencies = getNodeDependencies(outputNode.id);
+        if (dependencies.length === 0) {
+          console.log(`⚠️ Output node ${outputNode.id} has no dependencies, skipping`);
+          
+          // Create a warning message for output nodes with no dependencies
+          const warningOutput = `⚠️ OUTPUT NODE WARNING (ID: ${outputNode.id})\n\n` +
+            `This output node doesn't have any incoming connections.\n` +
+            `To see data flow, connect this node to an input or agent node, then run the test again.`;
+          
+          useAgentStore.getState().setNodeOutput(outputNode.id, warningOutput);
+          return;
+        }
+        
+        // Collect outputs from dependencies
+        const dependencyData = dependencies.map(depId => {
+          const depNode = storeNodes.find(n => n.id === depId);
+          if (!depNode) return null;
+          
+          const depName = depNode.data.label;
+          
+          if (!depNode.data.outputs || depNode.data.outputs.length === 0) {
+            return {
+              nodeId: depId,
+              nodeName: depName,
+              output: null
+            };
+          }
+          
+          return {
+            nodeId: depId,
+            nodeName: depName,
+            output: depNode.data.outputs[depNode.data.outputs.length - 1]
+          };
+        }).filter(Boolean);
+        
+        // Count how many dependencies have outputs
+        const depsWithOutputs = dependencyData.filter(dep => dep && dep.output).length;
+        const totalDeps = dependencyData.length;
+        
+        if (depsWithOutputs === 0) {
+          console.warn(`⚠️ Output node ${outputNode.id} has ${totalDeps} dependencies, but none have outputs`);
+          
+          // Create a warning message
+          const warningOutput = `⚠️ OUTPUT NODE WARNING (ID: ${outputNode.id})\n\n` +
+            `This output node has ${totalDeps} incoming connection${totalDeps > 1 ? 's' : ''}, but ` +
+            `none of them have generated any output yet.\n\n` +
+            `Connected nodes:\n` + 
+            dependencyData.map(dep => `- ${dep.nodeName} (ID: ${dep.nodeId})`).join('\n');
+          
+          useAgentStore.getState().setNodeOutput(outputNode.id, warningOutput);
+          return;
+        }
+        
+        // Format the concatenated output with clear markers showing the source of each part
+        const headerText = `📋 CONCATENATED OUTPUT (ID: ${outputNode.id})\n\n` +
+          `This output node has collected data from ${depsWithOutputs} of ${totalDeps} connected node${totalDeps > 1 ? 's' : ''}.\n\n` +
+          `=============================================================\n\n`;
+        
+        const depOutputs = dependencyData
+          .filter(dep => dep && dep.output)
+          .map(dep => dep.output);
+        
+        if (depOutputs.length > 0) {
+          const combinedOutput = headerText + formatConcatenatedInputs(depOutputs);
+          console.log(`📦 Setting output for node ${outputNode.id} based on ${depOutputs.length} dependency outputs`);
+          useAgentStore.getState().setNodeOutput(outputNode.id, combinedOutput);
+        }
+      });
+    }
+    
+    console.log('✅ All nodes updated with test outputs');
+    console.groupEnd();
+    toast.success('Test outputs generated! You can now visually trace data flow through the canvas.');
+    
+    // Update the state to indicate that outputs are available
+    setTimeout(() => {
+      // Check if any output nodes have outputs now
+      const hasOutputs = storeNodes.some(node => 
+        node.data.label === 'Output Box' && node.data.outputs && node.data.outputs.length > 0
+      );
+      
+      if (hasOutputs) {
+        console.log('Output nodes have data, enabling download button');
+        setOutputsAvailable(true);
+      }
+    }, 100); // Short delay to ensure store updates are processed
+  };
+
+  // Helper function to format concatenated inputs
+  const formatConcatenatedInputs = (inputs: string[]): string => {
+    if (inputs.length === 0) return '';
+    if (inputs.length === 1) return inputs[0];
+    
+    // Join inputs with clear separators
+    return inputs
+      .filter(input => input && input.trim()) // Filter out empty inputs
+      .map((input, index) => {
+        // Add a header for each input if there are multiple
+        return `--- INPUT ${index + 1} ---\n${input}\n`;
+      })
+      .join('\n');
+  };
+
   return (
     <div className="w-full h-full" ref={reactFlowWrapper}>
       <ReactFlowProvider>
@@ -398,6 +773,22 @@ export function FlowCanvas() {
             </Button>
             <Button
               variant="outline"
+              onClick={testAllConnections}
+              disabled={isRunning || storeNodes.length === 0}
+              className="shadow-md hover:shadow-lg transition-all"
+            >
+              Test Connections
+            </Button>
+            <Button
+              variant="outline"
+              onClick={generateTestOutputs}
+              disabled={isRunning || storeNodes.length === 0}
+              className="shadow-md hover:shadow-lg transition-all"
+            >
+              Generate Test Data
+            </Button>
+            <Button
+              variant="outline"
               onClick={saveCanvasState}
               className="shadow-md hover:shadow-lg transition-all"
             >
@@ -421,12 +812,7 @@ export function FlowCanvas() {
             <Button
               variant="outline"
               onClick={() => setDownloadDialogOpen(true)}
-              disabled={
-                isRunning || 
-                !storeNodes.some(node => 
-                  node.data.label === 'Output Box' && node.data.outputs.length > 0
-                )
-              }
+              disabled={isRunning || !outputsAvailable}
               className="shadow-md hover:shadow-lg transition-all"
             >
               Download Output

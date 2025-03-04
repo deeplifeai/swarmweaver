@@ -1,6 +1,46 @@
 import { AIModel, AIProvider } from '@/types/agent';
 import { useAgentStore } from '@/store/agentStore';
 
+// Add a validation function to check for common input issues
+function validateInput(input: string): { valid: boolean; issues: string[] } {
+  const issues: string[] = [];
+  
+  // Check if input appears to be truncated
+  if (input.endsWith('...') || input.endsWith('…')) {
+    issues.push('Input appears to be truncated (ends with ellipsis)');
+  }
+  
+  // Check for input that's too short
+  if (input.trim().length < 5) {
+    issues.push('Input is too short (less than 5 characters)');
+  }
+  
+  // Check for incomplete JSON or markdown code blocks
+  const openCodeBlocks = (input.match(/```[a-z]*\n/g) || []).length;
+  const closeCodeBlocks = (input.match(/```\s*\n/g) || []).length;
+  if (openCodeBlocks > closeCodeBlocks) {
+    issues.push(`Input contains unclosed code blocks (${openCodeBlocks} opening vs ${closeCodeBlocks} closing)`);
+  }
+  
+  // Check for unbalanced parentheses or brackets that might indicate truncation
+  const openParens = (input.match(/\(/g) || []).length;
+  const closeParens = (input.match(/\)/g) || []).length;
+  if (Math.abs(openParens - closeParens) > 2) {
+    issues.push(`Input has unbalanced parentheses (${openParens} opening vs ${closeParens} closing)`);
+  }
+  
+  const openBrackets = (input.match(/\{/g) || []).length;
+  const closeBrackets = (input.match(/\}/g) || []).length;
+  if (Math.abs(openBrackets - closeBrackets) > 2) {
+    issues.push(`Input has unbalanced curly braces (${openBrackets} opening vs ${closeBrackets} closing)`);
+  }
+  
+  return {
+    valid: issues.length === 0,
+    issues
+  };
+}
+
 export async function generateAgentResponse(
   provider: AIProvider,
   model: AIModel,
@@ -12,17 +52,41 @@ export async function generateAgentResponse(
   if (!apiKey) {
     throw new Error(`No API key set for ${provider}`);
   }
+  
+  // Validate input before sending to API
+  const validation = validateInput(userPrompt);
+  if (!validation.valid) {
+    console.warn('⚠️ Input validation issues detected:', validation.issues);
+    console.warn('⚠️ Input preview:', userPrompt.substring(0, 200) + (userPrompt.length > 200 ? '...' : ''));
+    // We'll continue with the request but log the warning
+  }
 
   try {
+    // Log input summary for debugging
+    console.info(`📤 Sending request to ${provider} (model: ${model})`);
+    console.info(`📋 Input length: ${userPrompt.length} characters`);
+    console.info(`📋 System prompt: "${systemPrompt.substring(0, 50)}${systemPrompt.length > 50 ? '...' : ''}"`);
+    
+    let response: string;
     if (provider === 'openai') {
-      return await callOpenAI(apiKey, model, systemPrompt, userPrompt);
+      response = await callOpenAI(apiKey, model, systemPrompt, userPrompt);
     } else if (provider === 'perplexity') {
-      return await callPerplexity(apiKey, model, systemPrompt, userPrompt);
+      response = await callPerplexity(apiKey, model, systemPrompt, userPrompt);
     } else {
       throw new Error(`Unsupported provider: ${provider}`);
     }
+    
+    // Check if response appears to be truncated or empty
+    if (response.trim().length === 0) {
+      console.warn('⚠️ API returned empty response');
+    } else if (response.endsWith('...') || response.endsWith('…')) {
+      console.warn('⚠️ API response may be truncated (ends with ellipsis)');
+    }
+    
+    console.info(`📥 Response received (${response.length} characters)`);
+    return response;
   } catch (error) {
-    console.error('Error generating agent response:', error);
+    console.error('❌ Error generating agent response:', error);
     throw error;
   }
 }

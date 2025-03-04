@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -95,12 +95,17 @@ export function AgentConfigDialog({ isOpen, onClose, agentId }: AgentConfigDialo
   };
   
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      if (!open) onClose();
+    }}>
       <DialogContent className="sm:max-w-lg glass-panel animate-scale-in">
         <DialogHeader>
-          <DialogTitle>
-            {existingAgent ? 'Edit Agent' : 'Create New Agent'}
-          </DialogTitle>
+          <DialogTitle>{existingAgent ? 'Edit Agent' : 'Create New Agent'}</DialogTitle>
+          <DialogDescription>
+            {existingAgent 
+              ? 'Modify your agent\'s properties below.' 
+              : 'Configure a new agent by filling out the details below.'}
+          </DialogDescription>
         </DialogHeader>
         
         <form onSubmit={handleSubmit} className="space-y-6">

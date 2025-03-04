@@ -38,7 +38,7 @@ export function AgentConfigDialog({ isOpen, onClose, agentId }: AgentConfigDialo
   const [name, setName] = React.useState(existingAgent?.name || '');
   const [systemPrompt, setSystemPrompt] = React.useState(existingAgent?.systemPrompt || '');
   const [provider, setProvider] = React.useState<AIProvider>(existingAgent?.provider || 'openai');
-  const [model, setModel] = React.useState<AIModel>(existingAgent?.model || 'gpt-4o-mini');
+  const [model, setModel] = React.useState<AIModel>(existingAgent?.model || 'gpt-4o');
   const [color, setColor] = React.useState(existingAgent?.color || agentColors[0]);
   
   const handleSubmit = (e: React.FormEvent) => {
@@ -158,13 +158,18 @@ export function AgentConfigDialog({ isOpen, onClose, agentId }: AgentConfigDialo
                   <SelectContent>
                     {provider === 'openai' ? (
                       <>
+                        <SelectItem value="gpt-4.5-preview">GPT-4.5 Preview</SelectItem>
                         <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                        <SelectItem value="gpt-4o-mini">GPT-4o-mini</SelectItem>
+                        <SelectItem value="o1-mini">O1-mini</SelectItem>
+                        <SelectItem value="o3-mini">O3-mini</SelectItem>
                       </>
                     ) : (
                       <>
-                        <SelectItem value="llama-3.1-sonar-small-128k-online">Llama 3.1 Sonar Small</SelectItem>
-                        <SelectItem value="llama-3.1-sonar-large-128k-online">Llama 3.1 Sonar Large</SelectItem>
+                        <SelectItem value="sonar-deep-research">Sonar Deep Research</SelectItem>
+                        <SelectItem value="sonar-reasoning-pro">Sonar Reasoning Pro</SelectItem>
+                        <SelectItem value="sonar-reasoning">Sonar Reasoning</SelectItem>
+                        <SelectItem value="sonar-pro">Sonar Pro</SelectItem>
+                        <SelectItem value="sonar">Sonar</SelectItem>
                       </>
                     )}
                   </SelectContent>

@@ -1,4 +1,3 @@
-
 import React, { useCallback, useRef, useState } from 'react';
 import {
   ReactFlow,
@@ -339,7 +338,11 @@ export function FlowCanvas() {
           fitView
           className="bg-slate-50"
         >
-          <Background variant="dots" gap={20} color="#e2e8f0" />
+          <Background 
+            variant="dots"
+            gap={20}
+            color="#e2e8f0"
+          />
           <Controls />
           <Panel position="top-right" className="flex gap-2">
             <Button

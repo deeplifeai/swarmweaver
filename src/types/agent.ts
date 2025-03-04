@@ -1,5 +1,16 @@
 
-export type AIModel = 'gpt-4o' | 'gpt-4o-mini' | 'llama-3.1-sonar-small-128k-online' | 'llama-3.1-sonar-large-128k-online';
+export type AIModel = 
+  // OpenAI models
+  | 'gpt-4.5-preview' 
+  | 'gpt-4o' 
+  | 'o1-mini' 
+  | 'o3-mini' 
+  // Perplexity models
+  | 'sonar-deep-research'
+  | 'sonar-reasoning-pro'
+  | 'sonar-reasoning'
+  | 'sonar-pro'
+  | 'sonar';
 
 export type AIProvider = 'openai' | 'perplexity';
 

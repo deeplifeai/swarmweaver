@@ -1,3 +1,4 @@
+
 import React, { useCallback, useRef, useState } from 'react';
 import {
   ReactFlow,
@@ -35,6 +36,7 @@ export function FlowCanvas() {
   const [isRunning, setIsRunning] = useState(false);
   const [downloadDialogOpen, setDownloadDialogOpen] = useState(false);
   const [downloadFilename, setDownloadFilename] = useState('swarm-output');
+  const [downloadFormat, setDownloadFormat] = useState<'json' | 'text'>('json');
 
   const storeNodes = useAgentStore((state) => state.nodes);
   const storeEdges = useAgentStore((state) => state.edges);
@@ -217,6 +219,27 @@ export function FlowCanvas() {
     }
   };
 
+  const parseOutputContent = (outputs: string[]): string => {
+    if (downloadFormat === 'json') {
+      try {
+        // Try to parse each output as JSON, or wrap it in a text field if it's not valid JSON
+        const parsedOutputs = outputs.map(output => {
+          try {
+            return JSON.parse(output);
+          } catch (e) {
+            return { text: output };
+          }
+        });
+        return JSON.stringify(parsedOutputs, null, 2);
+      } catch (e) {
+        console.error('Error parsing JSON:', e);
+        return outputs.join('\n\n---\n\n');
+      }
+    } else {
+      return outputs.join('\n\n---\n\n');
+    }
+  };
+
   const downloadOutput = async () => {
     try {
       const outputNodes = storeNodes.filter(node => node.data.label === 'Output Box');
@@ -230,11 +253,12 @@ export function FlowCanvas() {
       outputNodes.forEach((node, index) => {
         const outputs = node.data.outputs;
         if (outputs.length > 0) {
+          const fileExtension = downloadFormat === 'json' ? 'json' : 'txt';
           const filename = outputNodes.length > 1 
-            ? `output-${index + 1}.txt` 
-            : 'output.txt';
+            ? `output-${index + 1}.${fileExtension}` 
+            : `output.${fileExtension}`;
           
-          zip.file(filename, outputs.join('\n\n---\n\n'));
+          zip.file(filename, parseOutputContent(outputs));
         }
       });
       
@@ -288,7 +312,11 @@ export function FlowCanvas() {
       useAgentStore.getState().addNode({
         type: 'agent',
         position,
-        data
+        data: {
+          ...data,
+          inputs: [],
+          outputs: []
+        }
       });
     },
     [reactFlowWrapper]
@@ -357,6 +385,36 @@ export function FlowCanvas() {
                 placeholder="Enter filename (without extension)"
                 className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Format
+              </label>
+              <div className="flex space-x-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="format"
+                    value="json"
+                    checked={downloadFormat === 'json'}
+                    onChange={() => setDownloadFormat('json')}
+                    className="mr-2"
+                  />
+                  <span className="text-sm">JSON</span>
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="format"
+                    value="text"
+                    checked={downloadFormat === 'text'}
+                    onChange={() => setDownloadFormat('text')}
+                    className="mr-2"
+                  />
+                  <span className="text-sm">Plain Text</span>
+                </label>
+              </div>
             </div>
           </div>
           

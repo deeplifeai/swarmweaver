@@ -1,4 +1,3 @@
-
 import { AIModel, AIProvider } from '@/types/agent';
 import { useAgentStore } from '@/store/agentStore';
 
@@ -34,31 +33,51 @@ async function callOpenAI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
+  try {
+    const payload: any = {
       model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.7,
-      // Using max_completion_tokens instead of max_tokens for newer models
-      max_completion_tokens: 1000,
-    }),
-  });
+      max_tokens: 1000, // Correct parameter name for all OpenAI models
+    };
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`OpenAI API error: ${error.error?.message || 'Unknown error'}`);
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      let errorMessage = 'Unknown error';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error?.message || 
+                      errorData.error?.code || 
+                      `HTTP error ${response.status}`;
+      } catch (parseError) {
+        errorMessage = `HTTP error ${response.status}: ${response.statusText}`;
+      }
+      throw new Error(`OpenAI API error: ${errorMessage}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || '';
+  } catch (error: any) {
+    // Handle network errors or other exceptions
+    if (error.name === 'AbortError') {
+      throw new Error('OpenAI API request timed out');
+    }
+    if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      throw new Error('Network error when calling OpenAI API');
+    }
+    throw error;
   }
-
-  const data = await response.json();
-  return data.choices[0]?.message?.content || '';
 }
 
 async function callPerplexity(
@@ -67,28 +86,41 @@ async function callPerplexity(
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  const response = await fetch('https://api.perplexity.ai/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.7,
-      max_tokens: 1000,
-    }),
-  });
+  try {
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 1000,
+      }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`Perplexity API error: ${error.error?.message || 'Unknown error'}`);
+    if (!response.ok) {
+      let errorMessage = 'Unknown error';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error?.message || `HTTP error ${response.status}`;
+      } catch (parseError) {
+        errorMessage = `HTTP error ${response.status}: ${response.statusText}`;
+      }
+      throw new Error(`Perplexity API error: ${errorMessage}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content || '';
+  } catch (error: any) {
+    if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+      throw new Error('Network error when calling Perplexity API');
+    }
+    throw error;
   }
-
-  const data = await response.json();
-  return data.choices[0]?.message?.content || '';
 }

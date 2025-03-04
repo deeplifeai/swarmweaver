@@ -1,69 +1,121 @@
-# Welcome to your Lovable project
+# 🌊 SwarmWeaver
 
-## Project info
+![SwarmWeaver](path/to/logo/image.png)
 
-**URL**: https://lovable.dev/projects/08dd0870-38d3-4bce-a9a7-6c5a5068fe4e
+SwarmWeaver is a powerful visual tool for creating, connecting, and orchestrating AI agent workflows. Build complex multi-agent systems with a simple drag-and-drop interface, allowing you to create sophisticated AI pipelines without writing code.
 
-## How can I edit this code?
+## ✨ Features
 
-There are several ways of editing your application.
+- 🧠 **Visual Agent Canvas**: Drag and drop agents onto a canvas and connect them to create complex workflows
+- 🔄 **Agent Orchestration**: Automatically execute agents in the correct order based on dependencies
+- 📦 **Agent Library**: Save and reuse your favorite agent configurations
+- 🔌 **Multiple AI Providers**: Support for OpenAI and Perplexity AI models
+- 💾 **Save & Export**: Save your canvas state and export results in various formats
+- 🔒 **Secure Storage**: API keys are stored securely in your browser's local storage
 
-**Use Lovable**
+## 🚀 Getting Started
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/08dd0870-38d3-4bce-a9a7-6c5a5068fe4e) and start prompting.
+### Prerequisites
+- Node.js (v16 or higher)
+- npm or yarn
 
-Changes made via Lovable will be committed automatically to this repo.
+### Installation
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/swarmweaver.git
+   ```
 
-**Use your preferred IDE**
+2. Install dependencies:
+   ```bash
+   yarn
+   ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+3. Start the development server:
+   ```bash
+   yarn dev
+   ```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+4. Open your browser and navigate to http://localhost:8080
 
-Follow these steps:
+## 🔧 Configuration
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+### API Keys
+SwarmWeaver requires API keys to interact with AI providers:
+1. Click on the API Keys button in the sidebar
+2. Enter your OpenAI and/or Perplexity API keys
+3. Your keys are stored securely in your browser's local storage
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## 📖 Usage Guide
 
-# Step 3: Install the necessary dependencies.
-npm i
+### Creating Your First Agent Swarm
+1. **Add Agents to Canvas**: Drag agents from the sidebar onto the canvas
+2. **Connect Agents**: Click and drag from one agent's output handle to another agent's input handle
+3. **Configure Agents**: Click on an agent to configure its system prompt, model, and other settings
+4. **Add Input**: Click "Add Input" on an agent to provide initial input
+5. **Add Output Box**: Drag an "Output Box" to collect final results
+6. **Run Canvas**: Click the "Run Canvas" button to execute your agent swarm
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+### Example Workflow
 
-**Edit a file directly in GitHub**
+In this simple workflow:
+The Research Agent gathers information
+The Summarization Agent condenses the research
+The Output Box displays the final result
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## 🏗️ Architecture
 
-**Use GitHub Codespaces**
+SwarmWeaver is built with:
+- **React**: Frontend UI framework
+- **TypeScript**: Type-safe JavaScript
+- **Zustand**: State management
+- **@xyflow/react**: Canvas and node visualization
+- **Shadcn/UI**: UI components
+- **Vite**: Build tool and development server
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## 🧩 Core Components
 
-## What technologies are used for this project?
+### Canvas
+The canvas is where you build your agent workflows. It handles:
+- Drag and drop functionality
+- Node connections
+- Execution flow
 
-This project is built with .
+### Agent Node
+Each agent node represents an AI agent with:
+- Input/output handling
+- Configuration options
+- Execution status
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Agent Store
+The central state management system that:
+- Stores agent configurations
+- Manages canvas state
+- Handles execution results
+- Secures API keys
 
-## How can I deploy this project?
+## 🔐 Security
 
-Simply open [Lovable](https://lovable.dev/projects/08dd0870-38d3-4bce-a9a7-6c5a5068fe4e) and click on Share -> Publish.
+SwarmWeaver takes security seriously:
+- API keys are encrypted before being stored in local storage
+- All processing happens in your browser - no data is sent to our servers
+- Only the necessary data is sent to the AI provider APIs
 
-## I want to use a custom domain - is that possible?
+## 🤝 Contributing
 
-We don't support custom domains (yet). If you want to deploy your project under your own domain then we recommend using Netlify. Visit our docs for more details: [Custom domains](https://docs.lovable.dev/tips-tricks/custom-domain/)
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgements
+
+- React Flow for the flow visualization
+- Shadcn/UI for the beautiful UI components
+- OpenAI and Perplexity for their AI APIs

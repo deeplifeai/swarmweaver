@@ -1,5 +1,4 @@
-
-import React, { useCallback, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -45,6 +44,8 @@ export function FlowCanvas() {
   const executionResults = useAgentStore((state) => state.executionResults);
   const saveCanvasState = useAgentStore((state) => state.saveCanvasState);
   const exportCanvasToFile = useAgentStore((state) => state.exportCanvasToFile);
+  const clearCanvas = useAgentStore((state) => state.clearCanvas);
+  const clearAgents = useAgentStore((state) => state.clearAgents);
   const { setViewport } = useReactFlow();
 
   useEffect(() => {
@@ -86,10 +87,26 @@ export function FlowCanvas() {
     []
   );
 
-  const getNodeDependencies = (nodeId: string): string[] => {
+  const onNodeDelete = useCallback(
+    (event: React.MouseEvent, node: any) => {
+      useAgentStore.getState().removeNode(node.id);
+    },
+    []
+  );
+
+  const onNodesDelete = useCallback(
+    (nodes: any[]) => {
+      nodes.forEach(node => {
+        useAgentStore.getState().removeNode(node.id);
+      });
+    },
+    []
+  );
+
+  const getNodeDependencies = useCallback((nodeId: string): string[] => {
     const incomingEdges = edges.filter(edge => edge.target === nodeId);
     return incomingEdges.map(edge => edge.source);
-  };
+  }, [edges]);
 
   const getOutputs = (nodeId: string): string[] => {
     const node = storeNodes.find(n => n.id === nodeId);
@@ -148,7 +165,7 @@ export function FlowCanvas() {
       const dependencyOutputs = dependencyResults.map(result => result.output);
 
       let output = '';
-      if (node.type === 'output') {
+      if (node.data.label === 'Output Box') {
         output = [...node.data.inputs, ...dependencyOutputs].join('\n\n---\n\n');
       } else {
         const agent = getNodeAgentConfig(nodeId);
@@ -328,6 +345,11 @@ export function FlowCanvas() {
     [reactFlowWrapper]
   );
 
+  // Memoize expensive calculations
+  const outputNodes = useMemo(() => {
+    return storeNodes.filter(node => node.data.label === 'Output Box');
+  }, [storeNodes]);
+
   return (
     <div className="w-full h-full" ref={reactFlowWrapper}>
       <ReactFlowProvider>
@@ -339,6 +361,7 @@ export function FlowCanvas() {
           onConnect={onConnect}
           onEdgeDoubleClick={(_, edge) => onEdgeDelete(edge)}
           onNodeDragStop={onNodeDragStop}
+          onNodesDelete={onNodesDelete}
           nodeTypes={nodeTypes}
           onDragOver={onDragOver}
           onDrop={onDrop}
@@ -380,13 +403,6 @@ export function FlowCanvas() {
             </Button>
             <Button
               variant="outline"
-              onClick={exportCanvasToFile}
-              className="shadow-md hover:shadow-lg transition-all"
-            >
-              Export Canvas
-            </Button>
-            <Button
-              variant="outline"
               onClick={() => setDownloadDialogOpen(true)}
               disabled={
                 isRunning || 
@@ -397,6 +413,28 @@ export function FlowCanvas() {
               className="shadow-md hover:shadow-lg transition-all"
             >
               Download Output
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (confirm("Are you sure you want to clear the canvas? This will remove all nodes and connections.")) {
+                  clearCanvas();
+                }
+              }}
+              className="shadow-md hover:shadow-lg transition-all"
+            >
+              Clear Canvas
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (confirm("Are you sure you want to clear all saved agents? This action cannot be undone.")) {
+                  clearAgents();
+                }
+              }}
+              className="shadow-md hover:shadow-lg transition-all"
+            >
+              Clear Saved Agents
             </Button>
           </Panel>
         </ReactFlow>

@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -9,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAgentStore } from '@/store/agentStore';
 import { toast } from 'sonner';
 import { AIProvider, AIModel } from '@/types/agent';
+import { Checkbox } from '@/components/ui/checkbox';
+import { encryptData, decryptData } from '@/utils/encryption';
 
 interface AgentConfigDialogProps {
   isOpen: boolean;
@@ -40,6 +41,7 @@ export function AgentConfigDialog({ isOpen, onClose, agentId }: AgentConfigDialo
   const [provider, setProvider] = React.useState<AIProvider>(existingAgent?.provider || 'openai');
   const [model, setModel] = React.useState<AIModel>(existingAgent?.model || 'gpt-4o');
   const [color, setColor] = React.useState(existingAgent?.color || agentColors[0]);
+  const [saveToLibrary, setSaveToLibrary] = React.useState(false);
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +64,22 @@ export function AgentConfigDialog({ isOpen, onClose, agentId }: AgentConfigDialo
         model,
         color
       });
-      toast.success(`Agent "${name}" updated`);
+      
+      if (saveToLibrary) {
+        // Create a new agent with the same configuration
+        const newAgent = {
+          name: `${name} (Copy)`,
+          systemPrompt,
+          provider,
+          model,
+          color
+        };
+        
+        addAgent(newAgent);
+        toast.success(`Agent "${name}" updated and saved to library`);
+      } else {
+        toast.success(`Agent "${name}" updated`);
+      }
     } else {
       addAgent({
         name,
@@ -177,6 +194,18 @@ export function AgentConfigDialog({ isOpen, onClose, agentId }: AgentConfigDialo
               </div>
             </div>
           </div>
+          
+          {existingAgent && (
+            <div className="flex items-center space-x-2">
+              <Checkbox 
+                id="saveToLibrary" 
+                onCheckedChange={(checked) => setSaveToLibrary(checked === true)}
+              />
+              <Label htmlFor="saveToLibrary" className="text-sm font-medium">
+                Save as a new agent in library
+              </Label>
+            </div>
+          )}
           
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>

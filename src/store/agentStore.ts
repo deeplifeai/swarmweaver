@@ -1,7 +1,8 @@
-
 import { create } from 'zustand';
 import { Agent, AgentNode, AgentEdge, AgentExecutionResult, AIProvider, AIModel } from '@/types/agent';
 import { saveAs } from 'file-saver';
+import { encryptData, decryptData } from '@/utils/encryption';
+import { toast } from 'sonner';
 
 interface AgentState {
   agents: Agent[];
@@ -24,6 +25,8 @@ interface AgentState {
   removeNode: (id: string) => void;
   addEdge: (edge: Omit<AgentEdge, 'id'>) => void;
   removeEdge: (id: string) => void;
+  clearCanvas: () => void;
+  clearAgents: () => void;
   
   // Canvas inputs/outputs
   addNodeInput: (nodeId: string, input: string) => void;
@@ -35,6 +38,7 @@ interface AgentState {
   
   // API Keys
   setApiKey: (provider: AIProvider, key: string) => void;
+  loadApiKeys: () => { openai: string; perplexity: string };
   
   // Save functions
   saveAgentToLibrary: (node: AgentNode) => void;
@@ -50,7 +54,11 @@ const loadApiKeys = (): { openai: string; perplexity: string } => {
   try {
     const storedKeys = localStorage.getItem('swarmweaver_api_keys');
     if (storedKeys) {
-      return JSON.parse(storedKeys);
+      const parsedKeys = JSON.parse(storedKeys);
+      return {
+        openai: parsedKeys.openai ? decryptData(parsedKeys.openai, 'openai_salt') : '',
+        perplexity: parsedKeys.perplexity ? decryptData(parsedKeys.perplexity, 'perplexity_salt') : ''
+      };
     }
   } catch (error) {
     console.error('Failed to load API keys from localStorage:', error);
@@ -61,7 +69,11 @@ const loadApiKeys = (): { openai: string; perplexity: string } => {
 // Save API keys to localStorage
 const saveApiKeys = (keys: { openai: string; perplexity: string }) => {
   try {
-    localStorage.setItem('swarmweaver_api_keys', JSON.stringify(keys));
+    const encryptedKeys = {
+      openai: keys.openai ? encryptData(keys.openai, 'openai_salt') : '',
+      perplexity: keys.perplexity ? encryptData(keys.perplexity, 'perplexity_salt') : ''
+    };
+    localStorage.setItem('swarmweaver_api_keys', JSON.stringify(encryptedKeys));
   } catch (error) {
     console.error('Failed to save API keys to localStorage:', error);
   }
@@ -122,11 +134,41 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     )
   })),
   
-  removeNode: (id) => set((state) => ({
-    nodes: state.nodes.filter((node) => node.id !== id),
-    edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id)
-  })),
+  removeNode: (id) => {
+    console.log('Before removal:', get().nodes.length, 'nodes');
+    set((state) => {
+      const newState = {
+        nodes: state.nodes.filter((node) => node.id !== id),
+        edges: state.edges.filter((edge) => edge.source !== id && edge.target !== id)
+      };
+      console.log('After removal:', newState.nodes.length, 'nodes');
+      return newState;
+    });
+    console.log('Final state after removal:', get().nodes.length, 'nodes');
+  },
   
+  clearCanvas: () => {
+    set({ nodes: [], edges: [] });
+    // Also clear the localStorage copy
+    saveCanvasStateToLocalStorage({ 
+      nodes: [], 
+      edges: [], 
+      agents: get().agents 
+    });
+    toast.success('Canvas cleared');
+  },
+  
+  clearAgents: () => {
+    set({ agents: [] });
+    // Also clear the localStorage copy
+    saveCanvasStateToLocalStorage({ 
+      nodes: get().nodes, 
+      edges: get().edges, 
+      agents: [] 
+    });
+    toast.success('All saved agents cleared');
+  },
+
   addEdge: (edge) => set((state) => {
     // Prevent duplicate edges and self-connections
     const isDuplicate = state.edges.some(
@@ -149,7 +191,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   addNodeInput: (nodeId, input) => set((state) => ({
     nodes: state.nodes.map((node) => 
       node.id === nodeId 
-        ? { ...node, data: { ...node.data, inputs: [...node.data.inputs, input] } } 
+        ? { 
+            ...node, 
+            data: { 
+              ...node.data, 
+              inputs: [...(node.data.inputs || []), input] 
+            } 
+          } 
         : node
     )
   })),
@@ -157,7 +205,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   setNodeOutput: (nodeId, output) => set((state) => ({
     nodes: state.nodes.map((node) => 
       node.id === nodeId 
-        ? { ...node, data: { ...node.data, outputs: [...node.data.outputs, output] } } 
+        ? { 
+            ...node, 
+            data: { 
+              ...node.data, 
+              outputs: [...(node.data.outputs || []), output] 
+            } 
+          } 
         : node
     )
   })),
@@ -175,6 +229,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       saveApiKeys(updatedKeys);
       return { apiKey: updatedKeys };
     });
+  },
+  
+  loadApiKeys: () => {
+    const keys = loadApiKeys();
+    set({ apiKey: keys });
+    return keys;
   },
   
   saveAgentToLibrary: (node: AgentNode) => {

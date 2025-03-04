@@ -1,5 +1,5 @@
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useEffect } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -43,9 +43,11 @@ export function FlowCanvas() {
   const storeEdges = useAgentStore((state) => state.edges);
   const agents = useAgentStore((state) => state.agents);
   const executionResults = useAgentStore((state) => state.executionResults);
+  const saveCanvasState = useAgentStore((state) => state.saveCanvasState);
+  const exportCanvasToFile = useAgentStore((state) => state.exportCanvasToFile);
   const { setViewport } = useReactFlow();
 
-  React.useEffect(() => {
+  useEffect(() => {
     setNodes(storeNodes.map(node => ({
       id: node.id,
       type: 'agent',
@@ -356,7 +358,7 @@ export function FlowCanvas() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => useAgentStore.getState().saveCanvasState()}
+              onClick={saveCanvasState}
               className="shadow-md hover:shadow-lg transition-all"
             >
               Save Canvas
@@ -375,6 +377,13 @@ export function FlowCanvas() {
               className="shadow-md hover:shadow-lg transition-all"
             >
               Save Agent to Library
+            </Button>
+            <Button
+              variant="outline"
+              onClick={exportCanvasToFile}
+              className="shadow-md hover:shadow-lg transition-all"
+            >
+              Export Canvas
             </Button>
             <Button
               variant="outline"

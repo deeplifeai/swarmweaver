@@ -39,6 +39,8 @@ interface AgentState {
   // Save functions
   saveAgentToLibrary: (node: AgentNode) => void;
   saveCanvasState: () => void;
+  exportCanvasToFile: () => void;
+  loadCanvasState: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -65,10 +67,34 @@ const saveApiKeys = (keys: { openai: string; perplexity: string }) => {
   }
 };
 
+// Save/load canvas state from localStorage
+const saveCanvasStateToLocalStorage = (state: { nodes: AgentNode[], edges: AgentEdge[], agents: Agent[] }) => {
+  try {
+    localStorage.setItem('swarmweaver_canvas_state', JSON.stringify(state));
+  } catch (error) {
+    console.error('Failed to save canvas state to localStorage:', error);
+  }
+};
+
+const loadCanvasStateFromLocalStorage = () => {
+  try {
+    const storedState = localStorage.getItem('swarmweaver_canvas_state');
+    if (storedState) {
+      return JSON.parse(storedState);
+    }
+  } catch (error) {
+    console.error('Failed to load canvas state from localStorage:', error);
+  }
+  return { nodes: [], edges: [], agents: [] };
+};
+
+// Initialize with stored state
+const initialState = loadCanvasStateFromLocalStorage();
+
 export const useAgentStore = create<AgentState>((set, get) => ({
-  agents: [],
-  nodes: [],
-  edges: [],
+  agents: initialState.agents || [],
+  nodes: initialState.nodes || [],
+  edges: initialState.edges || [],
   executionResults: {},
   apiKey: loadApiKeys(), // Initialize with stored keys
   
@@ -180,7 +206,31 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       agents: get().agents
     };
     
+    saveCanvasStateToLocalStorage(state);
+    toast.success('Canvas state saved to browser storage');
+  },
+  
+  exportCanvasToFile: () => {
+    const state = {
+      nodes: get().nodes,
+      edges: get().edges,
+      agents: get().agents
+    };
+    
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     saveAs(blob, 'canvas-state.json');
   },
+  
+  loadCanvasState: () => {
+    const storedState = loadCanvasStateFromLocalStorage();
+    if (storedState) {
+      set({
+        nodes: storedState.nodes || [],
+        edges: storedState.edges || [],
+        agents: storedState.agents || []
+      });
+      return true;
+    }
+    return false;
+  }
 }));

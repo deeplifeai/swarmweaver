@@ -56,9 +56,20 @@ const loadApiKeys = (): { openai: string; perplexity: string } => {
     const storedKeys = localStorage.getItem('swarmweaver_api_keys');
     if (storedKeys) {
       const parsedKeys = JSON.parse(storedKeys);
+      const decryptKey = (encryptedKey: string, salt: string): string => {
+        try {
+          const decoded = atob(encryptedKey);
+          if (decoded.endsWith(salt)) {
+            return decoded.slice(0, -salt.length);
+          }
+        } catch (error) {
+          // If decoding fails, assume the key is stored in plain text
+        }
+        return encryptedKey; // assume plain text
+      };
       return {
-        openai: parsedKeys.openai ? decryptData(parsedKeys.openai, 'openai_salt') : '',
-        perplexity: parsedKeys.perplexity ? decryptData(parsedKeys.perplexity, 'perplexity_salt') : ''
+        openai: parsedKeys.openai ? decryptKey(parsedKeys.openai, 'openai_salt') : '',
+        perplexity: parsedKeys.perplexity ? decryptKey(parsedKeys.perplexity, 'perplexity_salt') : ''
       };
     }
   } catch (error) {
@@ -244,11 +255,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   
   setApiKey: (provider, key) => {
     set((state) => {
+      // Create updated keys object with the new key
       const updatedKeys = { ...state.apiKey, [provider]: key };
+      
       // Save to localStorage whenever keys are updated
       saveApiKeys(updatedKeys);
+      
+      console.info(`API key updated for ${provider}`);
+      
+      // Update the store state
+      // This will trigger a state update that propagates to all components
+      // that subscribe to the apiKey state
       return { apiKey: updatedKeys };
     });
+    
+    // Force a refresh of the store's state for components that directly access it
+    // through getState() (not using React's state management)
+    const refreshedKeys = useAgentStore.getState().apiKey;
+    console.info(`API keys refreshed in store:`, 
+      Object.keys(refreshedKeys).map(k => `${k}:${refreshedKeys[k] ? 'set' : 'not set'}`).join(', '));
   },
   
   loadApiKeys: () => {

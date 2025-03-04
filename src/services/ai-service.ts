@@ -47,27 +47,55 @@ export async function generateAgentResponse(
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
-  const apiKey = useAgentStore.getState().apiKey[provider];
-  
-  if (!apiKey) {
-    throw new Error(`No API key set for ${provider}`);
+  // Validate input parameters
+  if (!provider) {
+    console.error('❌ Missing provider in generateAgentResponse');
+    throw new Error('AI provider is required');
   }
-  
-  // Validate input before sending to API
-  const validation = validateInput(userPrompt);
-  if (!validation.valid) {
-    console.warn('⚠️ Input validation issues detected:', validation.issues);
-    console.warn('⚠️ Input preview:', userPrompt.substring(0, 200) + (userPrompt.length > 200 ? '...' : ''));
-    // We'll continue with the request but log the warning
+  if (!model) {
+    console.error('❌ Missing model in generateAgentResponse');
+    throw new Error('AI model is required');
+  }
+  if (!userPrompt || userPrompt.trim().length === 0) {
+    console.error('❌ Empty userPrompt in generateAgentResponse');
+    throw new Error('User prompt cannot be empty');
   }
 
+  // Always get fresh API key directly from the store
+  // This ensures we're using the most recently updated key
+  const apiKey = useAgentStore.getState().apiKey[provider];
+  
+  // Debug: Log a masked version of the API key to verify it is correct (avoid showing full key in production)
+  console.info(`DEBUG: Retrieved API key for ${provider}: ${apiKey.slice(0, 5)}...${apiKey.slice(-4)}`);
+
+  // If experiencing issues, consider clearing localStorage to remove stale keys:
+  // localStorage.removeItem('swarmweaver_api_keys');
+
+  // Validate API key
+  if (!apiKey) {
+    const errorMessage = `No API key configured for ${provider}`;
+    console.error(`❌ ${errorMessage}`);
+    return `[Error: ${errorMessage}. Please configure your API key in Settings.]`;
+  }
+  
+  // Check if API key looks valid (basic format check)
+  if (provider === 'openai' && !apiKey.startsWith('sk-')) {
+    const errorMessage = `Invalid OpenAI API key format (should start with 'sk-')`;
+    console.error(`❌ ${errorMessage}`);
+    return `[Error: ${errorMessage}. Please check your API key in Settings.]`;
+  }
+  
+  // We'll continue with the request but log the warning
+  if (!systemPrompt || systemPrompt.trim().length === 0) {
+    console.warn('⚠️ Empty system prompt');
+  }
+
+  console.info(`📤 Sending request to ${provider} with model ${model}`);
+  console.info(`System prompt length: ${systemPrompt?.length || 0}, User prompt length: ${userPrompt.length}`);
+  
   try {
-    // Log input summary for debugging
-    console.info(`📤 Sending request to ${provider} (model: ${model})`);
-    console.info(`📋 Input length: ${userPrompt.length} characters`);
-    console.info(`📋 System prompt: "${systemPrompt.substring(0, 50)}${systemPrompt.length > 50 ? '...' : ''}"`);
-    
     let response: string;
+    // Pass the freshly fetched API key to the provider-specific functions
     if (provider === 'openai') {
       response = await callOpenAI(apiKey, model, systemPrompt, userPrompt);
     } else if (provider === 'perplexity') {
@@ -77,8 +105,11 @@ export async function generateAgentResponse(
     }
     
     // Check if response appears to be truncated or empty
-    if (response.trim().length === 0) {
+    if (!response || response.trim().length === 0) {
       console.warn('⚠️ API returned empty response');
+      console.warn('Provider:', provider, 'Model:', model);
+      // Return a fallback message instead of empty string
+      return `[Error: The ${provider} API (${model}) returned an empty response. Please check your API key and configuration.]`;
     } else if (response.endsWith('...') || response.endsWith('…')) {
       console.warn('⚠️ API response may be truncated (ends with ellipsis)');
     }
@@ -87,7 +118,8 @@ export async function generateAgentResponse(
     return response;
   } catch (error) {
     console.error('❌ Error generating agent response:', error);
-    throw error;
+    // Return a more detailed error as the response text
+    return `[Error generating response: ${error.message || 'Unknown error'}]`;
   }
 }
 
@@ -97,7 +129,15 @@ async function callOpenAI(
   systemPrompt: string,
   userPrompt: string
 ): Promise<string> {
+  if (!apiKey) {
+    console.error('❌ No OpenAI API key provided');
+    throw new Error('OpenAI API key is required');
+  }
+
   try {
+    // Log the request information
+    console.info(`Calling OpenAI API with model: ${model}`);
+    
     // Base payload with required parameters
     const payload: any = {
       model,
@@ -113,15 +153,21 @@ async function callOpenAI(
           role: 'user', 
           content: `${systemPrompt}\n\n${userPrompt}` 
         });
+        console.info(`o1/o3 model: Combined system+user prompt length: ${(systemPrompt + userPrompt).length}`);
       } else {
         payload.messages.push({ role: 'user', content: userPrompt });
+        console.info(`o1/o3 model: User prompt only (no system prompt), length: ${userPrompt.length}`);
       }
     } else {
       // For other models, use standard system and user messages
       if (systemPrompt) {
         payload.messages.push({ role: 'system', content: systemPrompt });
+        console.info(`Standard model: System prompt length: ${systemPrompt.length}`);
+      } else {
+        console.warn(`Standard model: No system prompt provided!`);
       }
       payload.messages.push({ role: 'user', content: userPrompt });
+      console.info(`Standard model: User prompt length: ${userPrompt.length}`);
     }
 
     // Add max_completion_tokens for all models
@@ -133,13 +179,24 @@ async function callOpenAI(
       payload.temperature = 0.7;
     }
 
+    console.info(`Payload structure: ${JSON.stringify({
+      model: payload.model,
+      messageCount: payload.messages.length,
+      firstMessageRole: payload.messages[0]?.role,
+      messageTypes: payload.messages.map(m => m.role).join(',')
+    })}`);
+
+    // Log the actual request for debugging
+    const reqBody = JSON.stringify(payload);
+    console.info(`OpenAI request body preview (first 200 chars): ${reqBody.substring(0, 200)}...`);
+    
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify(payload),
+      body: reqBody,
     });
 
     if (!response.ok) {
@@ -149,6 +206,7 @@ async function callOpenAI(
         errorMessage = errorData.error?.message || 
                       errorData.error?.code || 
                       `HTTP error ${response.status}`;
+        console.error('OpenAI API error details:', JSON.stringify(errorData));
       } catch (parseError) {
         errorMessage = `HTTP error ${response.status}: ${response.statusText}`;
       }
@@ -156,7 +214,28 @@ async function callOpenAI(
     }
 
     const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    console.info(`OpenAI API response status: ${response.status}, data structure: ${JSON.stringify({
+      id: data.id?.substring(0, 10) || 'missing',
+      object: data.object || 'missing',
+      model: data.model || 'missing',
+      choicesLength: data.choices?.length || 0,
+      contentLength: data.choices?.[0]?.message?.content?.length || 0
+    })}`);
+    
+    // Validate response structure
+    if (!data || !data.choices || !data.choices.length) {
+      console.error('❌ Invalid response structure from OpenAI:', JSON.stringify(data));
+      throw new Error('Invalid response structure from OpenAI API');
+    }
+    
+    const content = data.choices[0]?.message?.content;
+    
+    if (!content) {
+      console.error('❌ Empty content in OpenAI response:', JSON.stringify(data.choices[0]));
+      throw new Error('Empty content in OpenAI response');
+    }
+    
+    return content;
   } catch (error: any) {
     // Handle network errors or other exceptions
     if (error.name === 'AbortError') {
@@ -165,6 +244,7 @@ async function callOpenAI(
     if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
       throw new Error('Network error when calling OpenAI API');
     }
+    console.error('OpenAI API call failed:', error);
     throw error;
   }
 }

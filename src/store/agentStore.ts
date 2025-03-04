@@ -1,5 +1,7 @@
+
 import { create } from 'zustand';
 import { Agent, AgentNode, AgentEdge, AgentExecutionResult, AIProvider, AIModel } from '@/types/agent';
+import { saveAs } from 'file-saver';
 
 interface AgentState {
   agents: Agent[];
@@ -33,19 +35,42 @@ interface AgentState {
   
   // API Keys
   setApiKey: (provider: AIProvider, key: string) => void;
+  
+  // Save functions
+  saveAgentToLibrary: (node: AgentNode) => void;
+  saveCanvasState: () => void;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
+
+// Load API keys from localStorage on initialization
+const loadApiKeys = (): { openai: string; perplexity: string } => {
+  try {
+    const storedKeys = localStorage.getItem('swarmweaver_api_keys');
+    if (storedKeys) {
+      return JSON.parse(storedKeys);
+    }
+  } catch (error) {
+    console.error('Failed to load API keys from localStorage:', error);
+  }
+  return { openai: '', perplexity: '' };
+};
+
+// Save API keys to localStorage
+const saveApiKeys = (keys: { openai: string; perplexity: string }) => {
+  try {
+    localStorage.setItem('swarmweaver_api_keys', JSON.stringify(keys));
+  } catch (error) {
+    console.error('Failed to save API keys to localStorage:', error);
+  }
+};
 
 export const useAgentStore = create<AgentState>((set, get) => ({
   agents: [],
   nodes: [],
   edges: [],
   executionResults: {},
-  apiKey: {
-    openai: '',
-    perplexity: '',
-  },
+  apiKey: loadApiKeys(), // Initialize with stored keys
   
   addAgent: (agent) => set((state) => ({
     agents: [...state.agents, { ...agent, id: generateId() }]
@@ -117,9 +142,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   
   clearExecutionResults: () => set({ executionResults: {} }),
   
-  setApiKey: (provider, key) => set((state) => ({
-    apiKey: { ...state.apiKey, [provider]: key }
-  })),
+  setApiKey: (provider, key) => {
+    set((state) => {
+      const updatedKeys = { ...state.apiKey, [provider]: key };
+      // Save to localStorage whenever keys are updated
+      saveApiKeys(updatedKeys);
+      return { apiKey: updatedKeys };
+    });
+  },
   
   saveAgentToLibrary: (node: AgentNode) => {
     if (!node.data.agentId) {

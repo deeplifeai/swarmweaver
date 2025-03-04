@@ -1,6 +1,6 @@
 
-import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import React, { useEffect } from 'react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,6 +19,12 @@ export function APIKeysDialog({ isOpen, onClose }: APIKeysDialogProps) {
   const [openaiKey, setOpenaiKey] = React.useState(apiKeys.openai || '');
   const [perplexityKey, setPerplexityKey] = React.useState(apiKeys.perplexity || '');
   
+  // Update local state when store changes or dialog opens
+  useEffect(() => {
+    setOpenaiKey(apiKeys.openai || '');
+    setPerplexityKey(apiKeys.perplexity || '');
+  }, [apiKeys, isOpen]);
+  
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -34,6 +40,9 @@ export function APIKeysDialog({ isOpen, onClose }: APIKeysDialogProps) {
       <DialogContent className="sm:max-w-md glass-panel animate-scale-in">
         <DialogHeader>
           <DialogTitle>Configure API Keys</DialogTitle>
+          <DialogDescription>
+            Your API keys are stored securely in your browser's local storage and will persist between sessions.
+          </DialogDescription>
         </DialogHeader>
         
         <form onSubmit={handleSubmit} className="space-y-4">

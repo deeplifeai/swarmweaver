@@ -44,100 +44,62 @@ function validateInput(input: string): { valid: boolean; issues: string[] } {
   };
 }
 
-export async function generateAgentResponse(
-  provider: AIProvider,
-  model: AIModel,
-  systemPrompt: string,
-  userPrompt: string
-): Promise<string> {
-  // Validate input parameters
-  if (!provider) {
-    console.error('❌ Missing provider in generateAgentResponse');
-    throw new Error('AI provider is required');
-  }
-  if (!model) {
-    console.error('❌ Missing model in generateAgentResponse');
-    throw new Error('AI model is required');
-  }
-  if (!userPrompt || userPrompt.trim().length === 0) {
-    console.error('❌ Empty userPrompt in generateAgentResponse');
-    throw new Error('User prompt cannot be empty');
-  }
-
-  // Ensure systemPrompt is always a string, never undefined
-  const normalizedSystemPrompt = systemPrompt || '';
+// Helper function to simulate the original API call
+async function originalGenerateAgentResponse(provider: string, model: any, systemPrompt: string, query: string): Promise<string> {
+  // Don't use the placeholder mock implementation
+  // Instead, call the actual API implementation
   
-  // Check cache for existing response
-  const cachedResponse = responseCache.getCachedResponse(provider, model, normalizedSystemPrompt, userPrompt);
-  if (cachedResponse) {
-    console.info(`Using cached response for ${provider}/${model}`);
-    return cachedResponse;
-  }
-
-  // Always get fresh API key directly from the store
-  // This ensures we're using the most recently updated key
+  console.log(`Making real API call to ${provider} with model ${model}`);
+  
+  // Get the API key from the store
   const apiKey = useAgentStore.getState().apiKey[provider];
-  
-  // Debug: Log a masked version of the API key to verify it is correct (avoid showing full key in production)
-  console.info(`DEBUG: Retrieved API key for ${provider}: ${apiKey.slice(0, 5)}...${apiKey.slice(-4)}`);
-
-  // If experiencing issues, consider clearing localStorage to remove stale keys:
-  // localStorage.removeItem('swarmweaver_api_keys');
-
-  // Validate API key
   if (!apiKey) {
-    const errorMessage = `No API key configured for ${provider}`;
-    console.error(`❌ ${errorMessage}`);
-    return `[ERROR::${errorMessage}. Please configure your API key in Settings.]`;
+    throw new Error(`No API key set for ${provider}`);
   }
   
-  // Check if API key looks valid (basic format check)
-  if (provider === 'openai' && !apiKey.startsWith('sk-')) {
-    const errorMessage = `Invalid OpenAI API key format (should start with 'sk-')`;
-    console.error(`❌ ${errorMessage}`);
-    return `[ERROR::${errorMessage}. Please check your API key in Settings.]`;
+  // Choose the appropriate API call based on provider
+  if (provider === 'openai') {
+    return callOpenAI(apiKey, model, systemPrompt, query);
+  } else if (provider === 'perplexity') {
+    return callPerplexity(apiKey, model, systemPrompt, query);
+  } else {
+    throw new Error(`Unsupported provider: ${provider}`);
   }
-  
-  // We'll continue with the request but log the warning
-  if (normalizedSystemPrompt.trim().length === 0) {
-    console.warn('⚠️ Empty system prompt');
-  }
+}
 
-  console.info(`📤 Sending request to ${provider} with model ${model}`);
-  console.info(`System prompt length: ${normalizedSystemPrompt.length}, User prompt length: ${userPrompt.length}`);
+// Modified generateAgentResponse with persistent caching using localStorage
+export async function generateAgentResponse(provider: string, model: any, systemPrompt: string, query: string): Promise<string> {
+  // Create a cache key by stringifying the parameters and encoding them in base64
+  const cacheKey = "agent-response-" + btoa(unescape(encodeURIComponent(JSON.stringify({ provider, model, systemPrompt, query }))));
   
-  try {
-    let response: string;
-    // Pass the freshly fetched API key to the provider-specific functions
-    if (provider === 'openai') {
-      response = await callOpenAI(apiKey, model, normalizedSystemPrompt, userPrompt);
-    } else if (provider === 'perplexity') {
-      response = await callPerplexity(apiKey, model, normalizedSystemPrompt, userPrompt);
+  // Add logging to track how many cache hits/misses we're getting
+  console.debug(`API Request - Provider: ${provider}, Model: ${model}, System prompt length: ${systemPrompt?.length || 0}, Query length: ${query?.length || 0}`);
+  
+  // Check if we have a cached response in localStorage
+  const cached = localStorage.getItem(cacheKey);
+  if (cached) {
+    // Validate cached response - must be non-empty and not an error
+    if (cached.length > 0 && !cached.startsWith('[Error:') && !cached.startsWith('[ERROR::')) {
+      console.info("✅ Using cached response for key: " + cacheKey);
+      return cached;
     } else {
-      throw new Error(`Unsupported provider: ${provider}`);
+      console.info("⚠️ Found invalid cached response, ignoring it");
+      // Invalid cache, remove it
+      localStorage.removeItem(cacheKey);
     }
-    
-    // Check if response appears to be truncated or empty
-    if (!response || response.trim().length === 0) {
-      console.warn('⚠️ API returned empty response');
-      console.warn('Provider:', provider, 'Model:', model);
-      // Throw an error instead of returning a message
-      throw new Error(`The ${provider} API (${model}) returned an empty response. Please check your API key and configuration.`);
-    } else if (response.endsWith('...') || response.endsWith('…')) {
-      console.warn('⚠️ API response may be truncated (ends with ellipsis)');
-    }
-    
-    // Cache the successful response
-    responseCache.cacheResponse(provider, model, normalizedSystemPrompt, userPrompt, response);
-    
-    console.info(`📥 Response received (${response.length} characters)`);
-    return response;
-  } catch (error: any) {
-    console.error('❌ Error generating agent response:', error);
-    // Use a special prefix that clearly indicates an error for parsing
-    // FORMAT: [ERROR::message]
-    return `[ERROR::${error.message || 'Unknown error'}]`;
   }
+  
+  console.info("❌ Cache miss - making real API call for key: " + cacheKey);
+  
+  // If not cached, call the original function
+  const response = await originalGenerateAgentResponse(provider, model, systemPrompt, query);
+  
+  // Only cache valid responses
+  if (response && response.length > 0 && !response.startsWith('[Error:') && !response.startsWith('[ERROR::')) {
+    localStorage.setItem(cacheKey, response);
+  }
+  
+  return response;
 }
 
 async function callOpenAI(

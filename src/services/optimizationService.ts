@@ -188,28 +188,49 @@ Your response for each chunk will be combined with responses for other chunks la
     // Add special marker to system prompt to prevent cache conflicts with non-chunked requests
     const markedSystemPrompt = `${optimizedPrompt}\n\n[CHUNKED_PROCESSING]`;
     
-    // Process chunks in parallel for efficiency
-    const results = await Promise.all(
-      chunks.map((chunk, index) => {
-        // Use a unique chunk identifier to avoid cache collisions between chunks
-        const chunkPrompt = `${chunkingInstruction}\n\nCHUNK ${index + 1} OF ${chunks.length}:\n${chunk}`;
-        
-        // We use generateAgentResponse to handle the actual API calls
-        // This ensures consistent error handling and parameter selection
-        return generateAgentResponse(
-          provider as any,
-          model,
-          markedSystemPrompt,
-          chunkPrompt
-        );
-      })
-    );
+    // Process chunks with limited parallelism instead of all at once or fully sequentially
+    const results: string[] = [];
+    const API_CALL_LIMIT = 3; // maximum number of API calls we allow
+    let apiCallCount = 0;
+    const BATCH_SIZE = 3; // limit concurrent API calls
+    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+      const availableCalls = API_CALL_LIMIT - apiCallCount;
+      if (availableCalls <= 0) {
+        console.warn('API call limit reached. Skipping remaining chunks.');
+        break;
+      }
+      // Slice the batch, and if the batch size is larger than availableCalls, trim it
+      let batch = chunks.slice(i, i + BATCH_SIZE);
+      if (batch.length > availableCalls) {
+        batch = batch.slice(0, availableCalls);
+      }
+      const batchPromises = batch.map((chunk, index) => {
+        const actualIndex = apiCallCount + index; // use global count for numbering
+        const chunkPrompt = `${chunkingInstruction}\n\nCHUNK ${actualIndex + 1} OF ${chunks.length}:\n${chunk}`;
+        console.info(`Processing chunk ${actualIndex + 1}/${chunks.length}...`);
+        return generateAgentResponse(provider as any, model, markedSystemPrompt, chunkPrompt)
+          .then(res => {
+            console.info(`Chunk ${actualIndex + 1} processed; result length: ${res.length}`);
+            return res;
+          });
+      });
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+      apiCallCount += batch.length;
+    }
+    // End of limited parallel chunk processing
     
     // Combine the results
     const combinedOutput = results.join('\n\n---\n\n');
     
     // If we have multiple chunks, try to use the model with the largest context window for cohesion
-    if (chunks.length > 1) {
+    if (chunks.length > 1 && results.length > 1) {
+      // Skip cohesion processing if we've reached the API call limit
+      if (apiCallCount >= API_CALL_LIMIT) {
+        console.warn('API call limit reached. Skipping cohesion processing and returning partial results.');
+        return combinedOutput;
+      }
+      
       try {
         const cohesionPrompt = `
 You have processed multiple chunks of a large input. Below are your outputs for each chunk:
@@ -227,12 +248,17 @@ Create a single cohesive response that properly integrates all these outputs. En
         // Add a special marker to ensure this doesn't pull from the regular cache
         const cohesionSystemPrompt = `${markedSystemPrompt}\n[COHESION_PROCESSING]`;
         
+        // Log this as a distinct API call
+        console.info(`Making additional cohesion API call (${apiCallCount + 1}/${API_CALL_LIMIT})`);
+        
         const cohesiveOutput = await generateAgentResponse(
           'openai',
           largeContextModel,
           cohesionSystemPrompt,
           cohesionPrompt
         );
+        
+        apiCallCount++; // Count the cohesion processing as an API call
         
         if (cohesiveOutput && !cohesiveOutput.startsWith('[Error:')) {
           return cohesiveOutput;

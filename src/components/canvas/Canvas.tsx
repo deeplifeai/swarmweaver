@@ -147,14 +147,55 @@ export function FlowCanvas() {
     return agent;
   };
 
-  const processNode = async (nodeId: string, processedNodes: Set<string>): Promise<AgentExecutionResult> => {
-    console.info(`Starting processing for node ${nodeId}`);
+  const processNode = async (nodeId: string, processedNodes: Set<string>, processingNodes?: Set<string>, depth: number = 0): Promise<AgentExecutionResult> => {
+    const MAX_DEPTH = 100;
+    if (depth > MAX_DEPTH) {
+      const errorMsg = `Maximum recursion depth (${MAX_DEPTH}) exceeded`;
+      console.error(`Error: ${errorMsg} at node ${nodeId}`);
+      useAgentStore.getState().setExecutionResult({
+        nodeId,
+        output: `[Error: ${errorMsg}]`,
+        status: 'error',
+        error: errorMsg
+      });
+      toast.error(`Error in node "${nodeId}": ${errorMsg}`);
+      return {
+        nodeId,
+        output: `[Error: ${errorMsg}]`,
+        status: 'error',
+        error: errorMsg
+      };
+    }
 
-    // If we've already processed this node, return its cached result
+    processingNodes = processingNodes || new Set<string>();
+
+    if (processingNodes.has(nodeId)) {
+      const errorMsg = 'Circular dependency detected';
+      console.error(`Cycle detected: Node ${nodeId} is already being processed. Aborting to prevent infinite recursion.`);
+      useAgentStore.getState().setExecutionResult({
+        nodeId,
+        output: `[Error: ${errorMsg}]`,
+        status: 'error',
+        error: errorMsg
+      });
+      toast.error(`Error in node "${nodeId}": ${errorMsg}`);
+      return {
+        nodeId,
+        output: `[Error: ${errorMsg}]`,
+        status: 'error',
+        error: errorMsg
+      };
+    }
+
+    processingNodes.add(nodeId);
+
+    console.info(`Starting processing for node ${nodeId} at depth ${depth}`);
+
     if (processedNodes.has(nodeId)) {
       const cachedResult = executionResults[nodeId];
       if (cachedResult) {
         console.info(`Node ${nodeId} already processed. Returning cached result.`);
+        processingNodes.delete(nodeId);
         return cachedResult;
       }
     }
@@ -163,6 +204,7 @@ export function FlowCanvas() {
     if (!node) {
       const errorMsg = 'Node not found';
       console.error(`Error: ${errorMsg} for node ${nodeId}`);
+      processingNodes.delete(nodeId);
       return {
         nodeId,
         output: '',
@@ -171,7 +213,6 @@ export function FlowCanvas() {
       };
     }
 
-    // Mark node as running
     useAgentStore.getState().setExecutionResult({
       nodeId,
       output: '',
@@ -179,14 +220,17 @@ export function FlowCanvas() {
     });
 
     try {
-      // Process dependencies first
       const dependencies = getNodeDependencies(nodeId);
       console.info(`Node ${nodeId} dependencies:`, dependencies);
-      const dependencyResults = await Promise.all(
-        dependencies.map(depId => processNode(depId, processedNodes))
-      );
+      const dependencyResults: AgentExecutionResult[] = [];
+      for (const depId of dependencies) {
+        const depResult = await processNode(depId, processedNodes, processingNodes, depth + 1);
+        dependencyResults.push(depResult);
+        if (depResult.status === 'error') {
+          break;
+        }
+      }
 
-      // Check if any dependencies failed
       const failedDependency = dependencyResults.find(result => result.status === 'error');
       if (failedDependency) {
         throw new Error(`Dependency error: ${failedDependency.error}`);
@@ -207,15 +251,11 @@ export function FlowCanvas() {
         console.info(`Node ${nodeId} using agent ${agent.id || 'unknown'} (provider: ${agent.provider}, model: ${agent.model})`);
         console.info(`Agent system prompt: ${agent.systemPrompt ? agent.systemPrompt.substring(0, 50) + '...' : 'EMPTY OR UNDEFINED'}`);
 
-        // Ensure system prompt is not null or undefined
         const systemPrompt = agent.systemPrompt || '';
-        
-        // Add a default system prompt if empty to prevent API errors
-        const effectiveSystemPrompt = systemPrompt.trim().length === 0 ? 
-          'You are a helpful AI assistant. Respond to the user input below in a clear and concise manner.' : 
+        const effectiveSystemPrompt = systemPrompt.trim().length === 0 ?
+          'You are a helpful AI assistant. Respond to the user input below in a clear and concise manner.' :
           systemPrompt;
 
-        // Use our improved format function for combined inputs
         const combinedInput = formatCombinedInputs([
           ...node.data.inputs,
           ...dependencyOutputs
@@ -226,101 +266,111 @@ export function FlowCanvas() {
         }
         console.info(`Combined input for node ${nodeId} (length: ${combinedInput.length}): ${combinedInput.substring(0, 50)}...`);
 
-        // We'll rely on generateAgentResponse to fetch the latest API key
-        // This ensures we're using the most up-to-date keys
-
         console.info(`Generating agent response for node ${nodeId}`);
         try {
-          // Check if input is very large and might benefit from chunked processing
-          if (combinedInput.length > 10000) {
-            console.info(`Node ${nodeId} has large input (${combinedInput.length} chars), using optimized processing`);
-            // Get the API key for the provider
-            const apiKey = useAgentStore.getState().apiKey[agent.provider];
-            
-            // Process with chunked strategy directly if input is very large
-            output = await processWithChunkedStrategy(
-              agent.provider,
-              agent.model,
-              effectiveSystemPrompt,
-              combinedInput,
-              apiKey
-            );
-          } else {
-            // Standard processing for normal-sized inputs
-            output = await generateAgentResponse(
-              agent.provider,
-              agent.model,
-              effectiveSystemPrompt,
-              combinedInput
-            );
-          }
+          // Keep track of nodes currently being processed with API calls to prevent race conditions
+          const currentlyProcessing = useAgentStore.getState().processingApiCalls || {};
           
-          // Check if output indicates an error - handle both legacy and new formats
+          // Check if this exact node is already being processed
+          if (currentlyProcessing[nodeId]) {
+            console.warn(`Node ${nodeId} is already processing an API call, waiting for that to complete...`);
+            output = await currentlyProcessing[nodeId];
+          } else {
+            // Create a new promise for this node's API call
+            const apiPromise = (async () => {
+              try {
+                let result;
+                if (combinedInput.length > 10000) {
+                  console.info(`Node ${nodeId} has large input (${combinedInput.length} chars), using optimized processing`);
+                  const apiKey = useAgentStore.getState().apiKey[agent.provider];
+                  result = await processWithChunkedStrategy(
+                    agent.provider,
+                    agent.model,
+                    effectiveSystemPrompt,
+                    combinedInput,
+                    apiKey
+                  );
+                } else {
+                  result = await generateAgentResponse(
+                    agent.provider,
+                    agent.model,
+                    effectiveSystemPrompt,
+                    combinedInput
+                  );
+                }
+                return result;
+              } finally {
+                // Cleanup: remove this promise when done
+                const updatedProcessing = useAgentStore.getState().processingApiCalls || {};
+                delete updatedProcessing[nodeId];
+                useAgentStore.getState().setProcessingApiCalls(updatedProcessing);
+              }
+            })();
+            
+            // Store the promise in the store
+            const updatedProcessing = {...currentlyProcessing};
+            updatedProcessing[nodeId] = apiPromise;
+            useAgentStore.getState().setProcessingApiCalls(updatedProcessing);
+            
+            // Wait for the API call to complete
+            output = await apiPromise;
+          }
+
           if (output.startsWith('[Error:')) {
             throw new Error(output.substring(8, output.length - 1));
           }
-          
-          // Check for our special error format [ERROR::message]
           if (output.startsWith('[ERROR::')) {
             const errorMessage = output.substring(8, output.length - 1);
             console.error(`Error detected in agent response: ${errorMessage}`);
             throw new Error(errorMessage);
           }
-          
           console.info(`Agent response received for node ${nodeId}`);
-        } catch (apiError: any) {
+        } catch (apiError) {
           console.error(`API error for node ${nodeId}:`, apiError);
           throw new Error(`API error: ${apiError.message || 'Unknown API error'}`);
         }
       }
 
-      // Check if output is empty but no error was thrown
       if (!output || output.trim().length === 0) {
         console.warn(`Empty output returned for node ${nodeId} without error`);
         output = "[Warning: Empty response received from the API]";
-        
-        // Mark as error instead of completed
         const result = {
           nodeId,
           output,
           status: 'error' as const,
           error: 'Empty response received from the API'
         };
-        
         useAgentStore.getState().setExecutionResult(result);
         console.info(`Node ${nodeId} processed with error: Empty response`);
+        processingNodes.delete(nodeId);
         return result;
       }
 
       useAgentStore.getState().setNodeOutput(nodeId, output);
       processedNodes.add(nodeId);
-      
       const result = {
         nodeId,
         output,
         status: 'completed' as const
       };
-      
       useAgentStore.getState().setExecutionResult(result);
       console.info(`Node ${nodeId} processed successfully`);
+      processingNodes.delete(nodeId);
       return result;
     } catch (error: any) {
       const errorMessage = error.message || 'Unknown error';
       console.error(`Error processing node ${nodeId}:`, error);
-      
-      // Set the error output in the node so it's visible to the user
       const errorOutput = `[Error: ${errorMessage}]`;
       useAgentStore.getState().setNodeOutput(nodeId, errorOutput);
-      
       const result = {
         nodeId,
         output: errorOutput,
         status: 'error' as const,
         error: errorMessage
       };
-      
       useAgentStore.getState().setExecutionResult(result);
       toast.error(`Error in node "${node.data.label}": ${errorMessage}`);
+      processingNodes.delete(nodeId);
       return result;
     }
   };

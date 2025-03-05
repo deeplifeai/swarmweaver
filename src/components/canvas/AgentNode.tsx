@@ -77,7 +77,7 @@ export function AgentNode({ id, data, isConnectable }: AgentNodeProps) {
         borderTop: `4px solid ${backgroundColor}`,
         opacity: executionResults?.status === 'completed' ? 1 : 0.9
       }}
-      onClick={handleEditClick}
+      onClick={data.label !== "Output Box" ? handleEditClick : undefined}
     >
       {/* Remove button */}
       <button 
@@ -130,22 +130,25 @@ export function AgentNode({ id, data, isConnectable }: AgentNodeProps) {
         
         {data.inputs.length === 0 && data.outputs.length === 0 && (
           <div className="text-center py-2 opacity-50 italic">
-            Click to add input
+            {data.label !== "Output Box" ? "Click to add input" : "Output will appear here"}
           </div>
         )}
       </div>
       
-      <div 
-        className="mt-2 text-primary text-xs cursor-pointer hover:underline text-center"
-        onClick={(e) => {
-          console.log('Add/Edit Input button clicked');
-          e.preventDefault();
-          e.stopPropagation();
-          setIsInputFormOpen(true);
-        }}
-      >
-        {data.inputs.length > 0 ? 'Edit Input' : 'Add Input'}
-      </div>
+      {/* Only show Add/Edit Input button for non-Output Box nodes */}
+      {data.label !== "Output Box" && (
+        <div 
+          className="mt-2 text-primary text-xs cursor-pointer hover:underline text-center"
+          onClick={(e) => {
+            console.log('Add/Edit Input button clicked');
+            e.preventDefault();
+            e.stopPropagation();
+            setIsInputFormOpen(true);
+          }}
+        >
+          {data.inputs.length > 0 ? 'Edit Input' : 'Add Input'}
+        </div>
+      )}
       
       {/* Render NodeInputForm in a Portal to avoid parent component issues */}
       {isInputFormOpen && (

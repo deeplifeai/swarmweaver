@@ -19,6 +19,7 @@ interface AgentState {
     enabled: boolean;
     size: number;
   };
+  processingApiCalls: Record<string, Promise<string>>;
   
   // Agent CRUD actions
   addAgent: (agent: Omit<Agent, 'id'>) => void;
@@ -50,6 +51,9 @@ interface AgentState {
   clearResponseCache: () => void;
   toggleCacheEnabled: () => void;
   updateCacheStats: () => void;
+  
+  // API call tracking
+  setProcessingApiCalls: (processingCalls: Record<string, Promise<string>>) => void;
   
   // Save functions
   saveAgentToLibrary: (node: AgentNode) => void;
@@ -132,6 +136,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   executionResults: {},
   apiKey: loadApiKeys(), // Initialize with stored keys
   cacheStats: { enabled: true, size: 0 },
+  processingApiCalls: {}, // Initialize with empty object
   
   addAgent: (agent) => set((state) => ({
     agents: [...state.agents, { ...agent, id: generateId() }]
@@ -383,6 +388,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         enabled: responseCache.isEnabled(),
         size: responseCache.getCacheSize()
       }
+    }));
+  },
+
+  setProcessingApiCalls: (processingCalls) => {
+    set(() => ({
+      processingApiCalls: processingCalls
     }));
   }
 }));

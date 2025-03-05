@@ -39,8 +39,34 @@ class ResponseCache {
    * Generate a cache key from input parameters
    */
   private generateKey(provider: AIProvider, model: AIModel, systemPrompt: string, userPrompt: string): string {
-    // Create a unique key based on all relevant parameters
-    return `${provider}:${model}:${systemPrompt.trim()}:${userPrompt.trim()}`;
+    // Create a unique key based on all relevant parameters 
+    // Ensure consistent trimming
+    const trimmedSystemPrompt = (systemPrompt || '').trim();
+    const trimmedUserPrompt = (userPrompt || '').trim();
+    
+    // Use JSON.stringify to ensure consistent string representation across whitespace/special chars
+    const key = `${provider}:${model}:${JSON.stringify(trimmedSystemPrompt)}:${JSON.stringify(trimmedUserPrompt)}`;
+    
+    // Log more detailed debug information about the key
+    console.debug(`Generated cache key for ${provider}/${model}:`);
+    console.debug(`System prompt length: ${trimmedSystemPrompt.length}, User prompt length: ${trimmedUserPrompt.length}`);
+    console.debug(`System prompt hash: ${this.simpleHash(trimmedSystemPrompt)}`);
+    console.debug(`User prompt hash: ${this.simpleHash(trimmedUserPrompt)}`);
+    
+    return key;
+  }
+
+  /**
+   * Generate a simple hash for debug logging
+   */
+  private simpleHash(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash).toString(36).substring(0, 8);
   }
 
   /**
@@ -66,13 +92,14 @@ class ResponseCache {
     this.cache.set(key, {
       provider,
       model,
-      systemPrompt,
-      userPrompt,
+      systemPrompt: (systemPrompt || '').trim(),
+      userPrompt: (userPrompt || '').trim(),
       response,
       timestamp: Date.now()
     });
     
-    console.info(`Cached response for ${provider}/${model} (key: ${key.substring(0, 20)}...)`);
+    // Show more of the key in logs
+    console.info(`Cached response for ${provider}/${model} (key: ${key.substring(0, 40)}...)`);
     console.info(`Cache size: ${this.cache.size} entries`);
   }
 
@@ -91,12 +118,14 @@ class ResponseCache {
     const cached = this.cache.get(key);
     
     if (cached) {
-      console.info(`Cache hit for ${provider}/${model} (key: ${key.substring(0, 20)}...)`);
+      // Show more of the key in logs
+      console.info(`Cache hit for ${provider}/${model} (key: ${key.substring(0, 40)}...)`);
       console.info(`Using cached response from ${new Date(cached.timestamp).toLocaleTimeString()}`);
       return cached.response;
     }
     
-    console.info(`Cache miss for ${provider}/${model} (key: ${key.substring(0, 20)}...)`);
+    // Show more of the key in logs
+    console.info(`Cache miss for ${provider}/${model} (key: ${key.substring(0, 40)}...)`);
     return null;
   }
 
@@ -133,4 +162,4 @@ class ResponseCache {
 }
 
 // Export a singleton instance
-export const responseCache = ResponseCache.getInstance(); 
+export const responseCache = ResponseCache.getInstance();

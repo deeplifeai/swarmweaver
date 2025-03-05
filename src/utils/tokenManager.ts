@@ -35,18 +35,18 @@ export function getMaxCompletionTokens(model: AIModel): number {
     const modelStr = model.toLowerCase();
     
     // OpenAI models
-    if (modelStr.includes('gpt-4-turbo') || modelStr.includes('gpt-4o')) return 4096;
-    if (modelStr.includes('gpt-4-32k')) return 8192;
-    if (modelStr.includes('gpt-4')) return 4096;
-    if (modelStr.includes('gpt-3.5-turbo-16k')) return 4096;
-    if (modelStr.includes('gpt-3.5-turbo')) return 2048;
+    if (modelStr.includes('gpt-4-turbo') || modelStr.includes('gpt-4o')) return 3500;
+    if (modelStr.includes('gpt-4-32k')) return 8000;
+    if (modelStr.includes('gpt-4')) return 3500;
+    if (modelStr.includes('gpt-3.5-turbo-16k')) return 3800;
+    if (modelStr.includes('gpt-3.5-turbo')) return 1800;
     
     // Anthropic Claude models
-    if (modelStr.includes('claude-3-opus')) return 4096;
-    if (modelStr.includes('claude-3-sonnet')) return 4096;
-    if (modelStr.includes('claude-3-haiku')) return 2048;
-    if (modelStr.includes('claude-2')) return 4096;
-    if (modelStr.includes('claude-1')) return 4096;
+    if (modelStr.includes('claude-3-opus')) return 3800;
+    if (modelStr.includes('claude-3-sonnet')) return 3800;
+    if (modelStr.includes('claude-3-haiku')) return 1800;
+    if (modelStr.includes('claude-2')) return 3800;
+    if (modelStr.includes('claude-1')) return 3800;
     
     // OpenRouter models
     if (modelStr.includes('o1')) return 8192;
@@ -76,21 +76,41 @@ export function calculateMaxOutputTokens(
   // Reserve tokens for system prompt, user input, and minimum expected output
   const reservedTokens = estimatedSystemTokens + estimatedUserTokens;
   
-  // Calculate available tokens for completion
-  const availableTokens = Math.max(0, modelContextSize - reservedTokens);
+  // For larger prompts, use a more conservative safety margin
+  let safetyFactor = 0.8; // Default 80% safety margin
+  
+  // Apply more conservative limits as prompts get larger to prevent hitting context boundaries
+  if (reservedTokens > modelContextSize * 0.5) {
+    // If prompt is using more than 50% of context window, reduce output allocation
+    safetyFactor = 0.7;
+  }
+  if (reservedTokens > modelContextSize * 0.7) {
+    // If prompt is very large (>70% of context), be even more conservative
+    safetyFactor = 0.6;
+  }
+  
+  // Add a small buffer for token counting inaccuracies (tiktoken vs. model's actual counting)
+  const tokenCountingBuffer = 100;
+  
+  // Calculate available tokens for completion with buffer
+  const availableTokens = Math.max(0, modelContextSize - reservedTokens - tokenCountingBuffer);
   
   // Use the smaller of:
-  // 1. Available tokens in the context
+  // 1. Available tokens in the context (with buffer)
   // 2. Max allowed completion tokens for this model
-  // 3. 80% of model context size (as a safety measure)
+  // 3. Safety percentage of model context size
   const maxOutputTokens = Math.min(
     availableTokens, 
     maxAllowedCompletionTokens,
-    Math.floor(modelContextSize * 0.8)
+    Math.floor(modelContextSize * safetyFactor)
   );
   
-  // Ensure we don't return a value less than minOutputTokens, unless the model can't support it
-  return Math.max(Math.min(minOutputTokens, maxAllowedCompletionTokens), maxOutputTokens);
+  // For very long prompts that leave little room, ensure we have at least some minimal space
+  // but don't exceed what's actually available
+  const minimumSafeTokens = Math.min(minOutputTokens, Math.max(300, availableTokens * 0.5));
+  
+  // Ensure we don't return a value less than our calculated minimum, unless the model can't support it
+  return Math.max(Math.min(minimumSafeTokens, maxAllowedCompletionTokens), maxOutputTokens);
 }
 
 // Intelligent chunking that preserves code blocks, sentences, and paragraphs

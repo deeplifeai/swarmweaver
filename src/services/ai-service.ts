@@ -1,6 +1,6 @@
 import { AIModel, AIProvider } from '@/types/agent';
 import { useAgentStore } from '@/store/agentStore';
-import { calculateMaxOutputTokens, getMaxCompletionTokens, estimateTokenCount } from '@/utils/tokenManager';
+import { calculateMaxOutputTokens, getMaxCompletionTokens, estimateTokenCount, getModelContextSize } from '@/utils/tokenManager';
 import { processWithChunkedStrategy } from './optimizationService';
 import { responseCache } from './cacheService';
 
@@ -64,8 +64,11 @@ export async function generateAgentResponse(
     throw new Error('User prompt cannot be empty');
   }
 
+  // Ensure systemPrompt is always a string, never undefined
+  const normalizedSystemPrompt = systemPrompt || '';
+  
   // Check cache for existing response
-  const cachedResponse = responseCache.getCachedResponse(provider, model, systemPrompt || '', userPrompt);
+  const cachedResponse = responseCache.getCachedResponse(provider, model, normalizedSystemPrompt, userPrompt);
   if (cachedResponse) {
     console.info(`Using cached response for ${provider}/${model}`);
     return cachedResponse;
@@ -96,20 +99,20 @@ export async function generateAgentResponse(
   }
   
   // We'll continue with the request but log the warning
-  if (!systemPrompt || systemPrompt.trim().length === 0) {
+  if (normalizedSystemPrompt.trim().length === 0) {
     console.warn('⚠️ Empty system prompt');
   }
 
   console.info(`📤 Sending request to ${provider} with model ${model}`);
-  console.info(`System prompt length: ${systemPrompt?.length || 0}, User prompt length: ${userPrompt.length}`);
+  console.info(`System prompt length: ${normalizedSystemPrompt.length}, User prompt length: ${userPrompt.length}`);
   
   try {
     let response: string;
     // Pass the freshly fetched API key to the provider-specific functions
     if (provider === 'openai') {
-      response = await callOpenAI(apiKey, model, systemPrompt, userPrompt);
+      response = await callOpenAI(apiKey, model, normalizedSystemPrompt, userPrompt);
     } else if (provider === 'perplexity') {
-      response = await callPerplexity(apiKey, model, systemPrompt, userPrompt);
+      response = await callPerplexity(apiKey, model, normalizedSystemPrompt, userPrompt);
     } else {
       throw new Error(`Unsupported provider: ${provider}`);
     }
@@ -125,7 +128,7 @@ export async function generateAgentResponse(
     }
     
     // Cache the successful response
-    responseCache.cacheResponse(provider, model, systemPrompt || '', userPrompt, response);
+    responseCache.cacheResponse(provider, model, normalizedSystemPrompt, userPrompt, response);
     
     console.info(`📥 Response received (${response.length} characters)`);
     return response;
@@ -152,9 +155,26 @@ async function callOpenAI(
 
   const tryCall = async (useAlternativeParameter = false) => {
     try {
-      // Check if we need to use chunked processing for large inputs
-      if (userPrompt.length > 10000) {
-        console.info(`Input is very large (${userPrompt.length} chars), using chunked processing strategy`);
+      // Get the estimated token count of the entire input
+      const estimatedSystemTokens = estimateTokenCount(systemPrompt || '');
+      const estimatedUserTokens = estimateTokenCount(userPrompt || '');
+      const totalEstimatedTokens = estimatedSystemTokens + estimatedUserTokens;
+      
+      // Get the model's context size
+      const modelContextSize = getModelContextSize(model);
+      
+      // Check if we need to use chunked processing
+      // More proactive checks to determine when chunking is needed:
+      // 1. If the input is very large (over 10k chars) - as before
+      // 2. If the estimated tokens are over 60% of the model's context window
+      // 3. If the user prompt is complex (contains lots of code blocks or is very large)
+      const useChunking = 
+        userPrompt.length > 10000 || 
+        totalEstimatedTokens > modelContextSize * 0.6 ||
+        (userPrompt.length > 6000 && (userPrompt.includes("```") || userPrompt.includes("code")));
+      
+      if (useChunking) {
+        console.info(`Using chunked processing strategy: Input is large (${userPrompt.length} chars, ~${totalEstimatedTokens} tokens, model context: ${modelContextSize})`);
         return processWithChunkedStrategy('openai', model, systemPrompt, userPrompt, apiKey);
       }
 
@@ -175,24 +195,28 @@ async function callOpenAI(
       // Different models require different parameter names for token limits
       const modelStr = String(model).toLowerCase();
       
-      if (useAlternativeParameter) {
-        // Force using the alternative parameter if the first attempt failed
-        if (modelStr.startsWith('gpt-') || modelStr.includes('claude') || modelStr.includes('perplexity')) {
-          payload.max_completion_tokens = maxOutputTokens;
-          console.info(`Fallback: Using 'max_completion_tokens' parameter for model ${model}`);
-        } else {
-          payload.max_tokens = maxOutputTokens;
-          console.info(`Fallback: Using 'max_tokens' parameter for model ${model}`);
-        }
-      } else {
-        // Normal determination based on model
-        if (modelStr.startsWith('gpt-') || modelStr.includes('claude') || modelStr.includes('perplexity')) {
+      // For OpenAI models, we're removing max_tokens and max_completion_tokens parameters
+      // as per the user's request since they're optional
+      // We'll still keep tracking the token counts for logging and chunking decisions
+      
+      // Only add token limits for non-OpenAI models
+      if (!modelStr.startsWith('gpt-')) {
+        if (useAlternativeParameter) {
+          // For non-OpenAI models, we might need to try the alternative parameter
+          if (payload.max_tokens) {
+            delete payload.max_tokens;
+            payload.max_completion_tokens = maxOutputTokens;
+            console.info(`Fallback: Switching to 'max_completion_tokens' for model ${model}`);
+          } else {
+            payload.max_tokens = maxOutputTokens;
+            console.info(`Fallback: Switching to 'max_tokens' for model ${model}`);
+          }
+        } else if (modelStr.includes('claude') || modelStr.includes('perplexity')) {
           payload.max_tokens = maxOutputTokens;
           console.info(`Using 'max_tokens' parameter for model ${model}`);
-        } else {
-          payload.max_completion_tokens = maxOutputTokens;
-          console.info(`Using 'max_completion_tokens' parameter for model ${model}`);
         }
+      } else {
+        console.info(`Skipping token limit parameters for OpenAI model ${model} as they're optional`);
       }
 
       // Handle messages based on model type
@@ -346,7 +370,7 @@ async function callOpenAI(
           model,
           finishReason: data.choices[0]?.finish_reason,
           promptLength: (systemPrompt?.length || 0) + (userPrompt?.length || 0), 
-          tokensRequested: payload.max_tokens || payload.max_completion_tokens,
+          tokensRequested: payload.max_tokens || 'not specified', // Updated to handle missing token parameters
           modelMaxLimit: getMaxCompletionTokens(model),
           tokensAvailable: data.model_context_size || 'unknown',
           promptTokens: data.usage?.prompt_tokens || 'unknown',
@@ -356,13 +380,16 @@ async function callOpenAI(
         
         // Check if it's due to length constraint
         if (data.choices[0]?.finish_reason === 'length') {
-          console.warn('Response was truncated due to length constraints. Attempting chunked processing...');
-          // Fall back to chunked processing for this case
+          console.warn('Response was truncated due to length constraints. Switching to chunked processing strategy...');
+          
+          // Directly switch to chunked processing for more reliable handling of complex/long prompts
+          console.info('Using chunked processing to handle length constraint issue');
           return processWithChunkedStrategy('openai', model, systemPrompt, userPrompt, apiKey);
+          
         } else if (data.choices[0]?.finish_reason === 'content_filter') {
-          throw new Error('Empty content in OpenAI response due to content filter');
+          throw new Error(`The ${model} API returned an empty response due to content filter. Please modify your input and try again.`);
         } else {
-          throw new Error('Empty content in OpenAI response');
+          throw new Error(`The ${model} API returned an empty response. Please check your API key and configuration.`);
         }
       }
       
@@ -377,15 +404,19 @@ async function callOpenAI(
       
       return content;
     } catch (error: any) {
-      // If we got a parameter error and haven't tried the alternative yet, try with the other parameter
-      if (!isTryingFallbackParameters && 
-          error.message && 
-          error.message.includes('Unsupported parameter') &&
-          (error.message.includes('max_tokens') || error.message.includes('max_completion_tokens'))) {
+      // Handle errors more robustly based on error message content
+      if (!isTryingFallbackParameters) {
+        // Check for parameter errors
+        const errorMsg = error.message || '';
+        const isParameterError = errorMsg.includes('Unsupported parameter') || 
+                                errorMsg.includes('is not supported with this model');
         
-        console.warn('Parameter error detected. Trying alternative parameter format...');
-        isTryingFallbackParameters = true;
-        throw new Error(`[Parameter error] ${error.message}. Attempting to use alternative parameter.`);
+        // Skip parameter fallback logic for OpenAI models since we're removing those parameters
+        if (isParameterError && !String(model).toLowerCase().startsWith('gpt-')) {
+          console.warn('Parameter error detected. Trying alternative parameter format...');
+          isTryingFallbackParameters = true;
+          throw new Error(`[Parameter error] ${error.message}. Attempting to use alternative parameter.`);
+        }
       }
       
       throw error; // Let the outer catch handle other errors
@@ -396,21 +427,24 @@ async function callOpenAI(
     return await tryCall();
   } catch (error: any) {
     // If we got a parameter error and haven't tried the alternative yet, try with the other parameter
-    if (!isTryingFallbackParameters && 
-        error.message && 
-        error.message.includes('Unsupported parameter') &&
-        (error.message.includes('max_tokens') || error.message.includes('max_completion_tokens'))) {
+    if (!isTryingFallbackParameters) {
+      const errorMsg = error.message || '';
+      const isParameterError = errorMsg.includes('Unsupported parameter') || 
+                              errorMsg.includes('is not supported with this model');
       
-      console.warn('Parameter error detected. Trying alternative parameter format...');
-      isTryingFallbackParameters = true;
-      try {
-        return await tryCall(true);
-      } catch (fallbackError: any) {
-        console.error('Fallback attempt also failed:', fallbackError);
-        throw fallbackError; // Propagate the error from the fallback attempt
+      // Skip parameter fallback logic for OpenAI models since we're removing those parameters
+      if (isParameterError && !String(model).toLowerCase().startsWith('gpt-')) {
+        console.warn('Parameter error detected in outer handler. Trying alternative parameter format...');
+        isTryingFallbackParameters = true;
+        try {
+          return await tryCall(true);
+        } catch (fallbackError: any) {
+          console.error('Fallback attempt also failed:', fallbackError);
+          throw fallbackError; // Propagate the error from the fallback attempt
+        }
       }
     }
-    
+
     // Handle network errors or other exceptions
     if (error.name === 'AbortError') {
       throw new Error('OpenAI API request timed out');

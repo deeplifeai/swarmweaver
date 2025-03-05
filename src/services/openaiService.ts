@@ -38,7 +38,7 @@ export async function generateResponse(
       const response = await openai.createChatCompletion({
         model,
         messages: [{ role: 'user', content: currentPrompt }],
-        max_tokens: maxOutputTokens
+        max_completion_tokens: maxOutputTokens
       });
 
       const chunk = response.data.choices[0].message?.content || "";

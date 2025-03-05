@@ -140,10 +140,20 @@ export async function processWithChunkedStrategy(
   input: string,
   apiKey: string
 ): Promise<string> {
-  const MAX_CHUNK_CHARS = 6000; // Adjust based on your models
+  const { estimateTokenCount } = await import('@/utils/tokenManager');
+  
+  // Calculate appropriate chunk size based on model
+  const estimatedInputTokens = estimateTokenCount(input);
+  const estimatedSystemTokens = estimateTokenCount(systemPrompt);
+  
+  // Target 30% of model's context size for each chunk to leave room for response
+  // We'll dynamically calculate this based on token count rather than character count
+  const MAX_SAFE_TOKENS_PER_CHUNK = 2000; // Default safe limit
+  
+  console.info(`Using chunked processing strategy: Input ~${estimatedInputTokens} tokens, System ~${estimatedSystemTokens} tokens`);
   
   // If input is small enough, process directly
-  if (input.length <= MAX_CHUNK_CHARS) {
+  if (estimatedInputTokens <= MAX_SAFE_TOKENS_PER_CHUNK) {
     return generateAgentResponse(
       provider as any,
       model,
@@ -168,41 +178,20 @@ Your response for each chunk will be combined with responses for other chunks la
     const useOpenAIModels = provider === 'openai';
     
     // Break input into chunks at natural boundaries
-    const chunks: string[] = [];
-    let remaining = input;
+    const { chunkText } = await import('@/utils/tokenManager');
     
-    while (remaining.length > 0) {
-      // Find a natural breaking point
-      let breakPoint = MAX_CHUNK_CHARS;
-      if (remaining.length > MAX_CHUNK_CHARS) {
-        // Look for paragraph breaks
-        const paragraphBreak = remaining.lastIndexOf('\n\n', MAX_CHUNK_CHARS);
-        if (paragraphBreak > MAX_CHUNK_CHARS * 0.5) {
-          breakPoint = paragraphBreak + 2;
-        } else {
-          // Look for sentence breaks
-          const sentenceBreak = Math.max(
-            remaining.lastIndexOf('. ', MAX_CHUNK_CHARS),
-            remaining.lastIndexOf('! ', MAX_CHUNK_CHARS),
-            remaining.lastIndexOf('? ', MAX_CHUNK_CHARS)
-          );
-          if (sentenceBreak > MAX_CHUNK_CHARS * 0.5) {
-            breakPoint = sentenceBreak + 2;
-          }
-        }
-      } else {
-        breakPoint = remaining.length;
-      }
-      
-      chunks.push(remaining.substring(0, breakPoint));
-      remaining = remaining.substring(breakPoint);
-    }
+    // Use the more intelligent chunking algorithm from tokenManager
+    const chunks = chunkText(input, MAX_SAFE_TOKENS_PER_CHUNK);
     
     console.info(`Split input into ${chunks.length} chunks for processing`);
+    
+    // Add special marker to system prompt to prevent cache conflicts with non-chunked requests
+    const markedSystemPrompt = `${optimizedPrompt}\n\n[CHUNKED_PROCESSING]`;
     
     // Process chunks in parallel for efficiency
     const results = await Promise.all(
       chunks.map((chunk, index) => {
+        // Use a unique chunk identifier to avoid cache collisions between chunks
         const chunkPrompt = `${chunkingInstruction}\n\nCHUNK ${index + 1} OF ${chunks.length}:\n${chunk}`;
         
         // We use generateAgentResponse to handle the actual API calls
@@ -210,7 +199,7 @@ Your response for each chunk will be combined with responses for other chunks la
         return generateAgentResponse(
           provider as any,
           model,
-          optimizedPrompt,
+          markedSystemPrompt,
           chunkPrompt
         );
       })
@@ -219,7 +208,7 @@ Your response for each chunk will be combined with responses for other chunks la
     // Combine the results
     const combinedOutput = results.join('\n\n---\n\n');
     
-    // If we have multiple chunks, try to use GPT-4o to create a cohesive output
+    // If we have multiple chunks, try to use the model with the largest context window for cohesion
     if (chunks.length > 1) {
       try {
         const cohesionPrompt = `
@@ -229,11 +218,19 @@ ${results.map((result, i) => `--- OUTPUT CHUNK ${i + 1} ---\n${result}`).join('\
 
 Create a single cohesive response that properly integrates all these outputs. Ensure there is no redundancy or repetition while preserving all unique information and insights. The final response should flow naturally as if it was generated from the complete input at once.`;
 
-        // Always use standard OpenAI model for coherence processing
+        // Use the model with the largest context window for cohesion processing
+        // Claude-3-Opus or GPT-4-Turbo have the largest context windows
+        const largeContextModel = 'gpt-4-turbo' as AIModel; // 128k context window
+        
+        console.info(`Using large context model (${largeContextModel}) for final coherence processing`);
+        
+        // Add a special marker to ensure this doesn't pull from the regular cache
+        const cohesionSystemPrompt = `${markedSystemPrompt}\n[COHESION_PROCESSING]`;
+        
         const cohesiveOutput = await generateAgentResponse(
           'openai',
-          'gpt-4o' as AIModel,
-          optimizedPrompt,
+          largeContextModel,
+          cohesionSystemPrompt,
           cohesionPrompt
         );
         

@@ -1,5 +1,8 @@
 import { AIModel, AIProvider } from '@/types/agent';
 import { useAgentStore } from '@/store/agentStore';
+import { calculateMaxOutputTokens, getMaxCompletionTokens, estimateTokenCount } from '@/utils/tokenManager';
+import { processWithChunkedStrategy } from './optimizationService';
+import { responseCache } from './cacheService';
 
 // Add a validation function to check for common input issues
 function validateInput(input: string): { valid: boolean; issues: string[] } {
@@ -61,6 +64,13 @@ export async function generateAgentResponse(
     throw new Error('User prompt cannot be empty');
   }
 
+  // Check cache for existing response
+  const cachedResponse = responseCache.getCachedResponse(provider, model, systemPrompt || '', userPrompt);
+  if (cachedResponse) {
+    console.info(`Using cached response for ${provider}/${model}`);
+    return cachedResponse;
+  }
+
   // Always get fresh API key directly from the store
   // This ensures we're using the most recently updated key
   const apiKey = useAgentStore.getState().apiKey[provider];
@@ -75,14 +85,14 @@ export async function generateAgentResponse(
   if (!apiKey) {
     const errorMessage = `No API key configured for ${provider}`;
     console.error(`❌ ${errorMessage}`);
-    return `[Error: ${errorMessage}. Please configure your API key in Settings.]`;
+    return `[ERROR::${errorMessage}. Please configure your API key in Settings.]`;
   }
   
   // Check if API key looks valid (basic format check)
   if (provider === 'openai' && !apiKey.startsWith('sk-')) {
     const errorMessage = `Invalid OpenAI API key format (should start with 'sk-')`;
     console.error(`❌ ${errorMessage}`);
-    return `[Error: ${errorMessage}. Please check your API key in Settings.]`;
+    return `[ERROR::${errorMessage}. Please check your API key in Settings.]`;
   }
   
   // We'll continue with the request but log the warning
@@ -108,18 +118,22 @@ export async function generateAgentResponse(
     if (!response || response.trim().length === 0) {
       console.warn('⚠️ API returned empty response');
       console.warn('Provider:', provider, 'Model:', model);
-      // Return a fallback message instead of empty string
-      return `[Error: The ${provider} API (${model}) returned an empty response. Please check your API key and configuration.]`;
+      // Throw an error instead of returning a message
+      throw new Error(`The ${provider} API (${model}) returned an empty response. Please check your API key and configuration.`);
     } else if (response.endsWith('...') || response.endsWith('…')) {
       console.warn('⚠️ API response may be truncated (ends with ellipsis)');
     }
     
+    // Cache the successful response
+    responseCache.cacheResponse(provider, model, systemPrompt || '', userPrompt, response);
+    
     console.info(`📥 Response received (${response.length} characters)`);
     return response;
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Error generating agent response:', error);
-    // Return a more detailed error as the response text
-    return `[Error generating response: ${error.message || 'Unknown error'}]`;
+    // Use a special prefix that clearly indicates an error for parsing
+    // FORMAT: [ERROR::message]
+    return `[ERROR::${error.message || 'Unknown error'}]`;
   }
 }
 
@@ -134,109 +148,269 @@ async function callOpenAI(
     throw new Error('OpenAI API key is required');
   }
 
-  try {
-    // Log the request information
-    console.info(`Calling OpenAI API with model: ${model}`);
-    
-    // Base payload with required parameters
-    const payload: any = {
-      model,
-      messages: []
-    };
+  let isTryingFallbackParameters = false;
 
-    // Handle messages based on model type
-    // o1 and o3 models don't support 'system' role
-    if (model.toString().startsWith('o1') || model.toString().startsWith('o3')) {
-      // For o1/o3 models, convert system message to a user message prefix
-      if (systemPrompt) {
-        payload.messages.push({ 
-          role: 'user', 
-          content: `${systemPrompt}\n\n${userPrompt}` 
-        });
-        console.info(`o1/o3 model: Combined system+user prompt length: ${(systemPrompt + userPrompt).length}`);
+  const tryCall = async (useAlternativeParameter = false) => {
+    try {
+      // Check if we need to use chunked processing for large inputs
+      if (userPrompt.length > 10000) {
+        console.info(`Input is very large (${userPrompt.length} chars), using chunked processing strategy`);
+        return processWithChunkedStrategy('openai', model, systemPrompt, userPrompt, apiKey);
+      }
+
+      // Log the request information
+      console.info(`Calling OpenAI API with model: ${model}`);
+      
+      // Calculate appropriate max_tokens based on input size and model
+      const maxOutputTokens = calculateMaxOutputTokens(systemPrompt, userPrompt, model);
+      const maxAllowedCompletionTokens = getMaxCompletionTokens(model);
+      console.info(`Calculated max output tokens: ${maxOutputTokens} (model limit: ${maxAllowedCompletionTokens})`);
+      
+      // Base payload with required parameters
+      const payload: any = {
+        model,
+        messages: []
+      };
+      
+      // Different models require different parameter names for token limits
+      const modelStr = String(model).toLowerCase();
+      
+      if (useAlternativeParameter) {
+        // Force using the alternative parameter if the first attempt failed
+        if (modelStr.startsWith('gpt-') || modelStr.includes('claude') || modelStr.includes('perplexity')) {
+          payload.max_completion_tokens = maxOutputTokens;
+          console.info(`Fallback: Using 'max_completion_tokens' parameter for model ${model}`);
+        } else {
+          payload.max_tokens = maxOutputTokens;
+          console.info(`Fallback: Using 'max_tokens' parameter for model ${model}`);
+        }
       } else {
+        // Normal determination based on model
+        if (modelStr.startsWith('gpt-') || modelStr.includes('claude') || modelStr.includes('perplexity')) {
+          payload.max_tokens = maxOutputTokens;
+          console.info(`Using 'max_tokens' parameter for model ${model}`);
+        } else {
+          payload.max_completion_tokens = maxOutputTokens;
+          console.info(`Using 'max_completion_tokens' parameter for model ${model}`);
+        }
+      }
+
+      // Handle messages based on model type
+      // o1 and o3 models don't support 'system' role
+      if (modelStr.startsWith('o1') || modelStr.startsWith('o3')) {
+        // For o1/o3 models, convert system message to a user message prefix
+        if (systemPrompt) {
+          payload.messages.push({ 
+            role: 'user', 
+            content: `${systemPrompt}\n\n${userPrompt}` 
+          });
+          console.info(`o1/o3 model: Combined system+user prompt length: ${(systemPrompt + userPrompt).length}`);
+        } else {
+          payload.messages.push({ role: 'user', content: userPrompt });
+          console.info(`o1/o3 model: User prompt only (no system prompt), length: ${userPrompt.length}`);
+        }
+      } else {
+        // For other models, use standard system and user messages
+        if (systemPrompt) {
+          payload.messages.push({ role: 'system', content: systemPrompt });
+          console.info(`Standard model: System prompt length: ${systemPrompt.length}`);
+        } else {
+          console.warn(`Standard model: No system prompt provided!`);
+        }
         payload.messages.push({ role: 'user', content: userPrompt });
-        console.info(`o1/o3 model: User prompt only (no system prompt), length: ${userPrompt.length}`);
+        console.info(`Standard model: User prompt length: ${userPrompt.length}`);
       }
-    } else {
-      // For other models, use standard system and user messages
-      if (systemPrompt) {
-        payload.messages.push({ role: 'system', content: systemPrompt });
-        console.info(`Standard model: System prompt length: ${systemPrompt.length}`);
-      } else {
-        console.warn(`Standard model: No system prompt provided!`);
+
+      // Check if we should request JSON output format - be more selective to avoid unnecessary use
+      const jsonFormatPatterns = [
+        'return json',
+        'respond in json',
+        'output in json',
+        'json format',
+        'json response',
+        'return a json',
+        'provide json',
+        'as json',
+        'json object'
+      ];
+      
+      // Check if any of the patterns are present in the prompts
+      const requestsJson = jsonFormatPatterns.some(pattern => {
+        const inSystemPrompt = systemPrompt?.toLowerCase().includes(pattern);
+        const inUserPrompt = userPrompt.toLowerCase().includes(pattern);
+        if (inSystemPrompt || inUserPrompt) {
+          console.info(`JSON format detected: found pattern "${pattern}" in ${inSystemPrompt ? 'system prompt' : 'user prompt'}`);
+          return true;
+        }
+        return false;
+      });
+      
+      if (requestsJson) {
+        // OpenAI requires the word "json" to be in the messages when using JSON response format
+        payload.response_format = { type: "json_object" };
+        console.info('Requesting JSON response format');
+        
+        // Make sure "json" appears in at least one message to satisfy OpenAI's requirement
+        const containsJsonWord = payload.messages.some(msg => {
+          const contains = msg.content && msg.content.toLowerCase().includes('json');
+          if (contains) {
+            console.info(`Message with role ${msg.role} already contains the word "json"`);
+          }
+          return contains;
+        });
+        
+        if (!containsJsonWord) {
+          console.info('Adding "json" requirement to the user message to satisfy OpenAI API');
+          
+          // Find the user message to append to
+          const userMsgIndex = payload.messages.findIndex(msg => msg.role === 'user');
+          
+          if (userMsgIndex >= 0) {
+            // Append to existing user message
+            payload.messages[userMsgIndex].content += '\n\nPlease provide your response in JSON format.';
+          } else if (payload.messages.length > 0) {
+            // Append to the last message if no user message found
+            payload.messages[payload.messages.length - 1].content += '\n\nPlease provide your response in JSON format.';
+          }
+        }
       }
-      payload.messages.push({ role: 'user', content: userPrompt });
-      console.info(`Standard model: User prompt length: ${userPrompt.length}`);
-    }
 
-    // Add max_completion_tokens for all models
-    payload.max_completion_tokens = 1000;
-
-    // Only add temperature for models that support it
-    // Reasoning models (o1, o1-mini, o3-mini) don't support temperature
-    if (!model.toString().startsWith('o1') && !model.toString().startsWith('o3')) {
-      payload.temperature = 0.7;
-    }
-
-    console.info(`Payload structure: ${JSON.stringify({
-      model: payload.model,
-      messageCount: payload.messages.length,
-      firstMessageRole: payload.messages[0]?.role,
-      messageTypes: payload.messages.map(m => m.role).join(',')
-    })}`);
-
-    // Log the actual request for debugging
-    const reqBody = JSON.stringify(payload);
-    console.info(`OpenAI request body preview (first 200 chars): ${reqBody.substring(0, 200)}...`);
-    
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: reqBody,
-    });
-
-    if (!response.ok) {
-      let errorMessage = 'Unknown error';
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error?.message || 
-                      errorData.error?.code || 
-                      `HTTP error ${response.status}`;
-        console.error('OpenAI API error details:', JSON.stringify(errorData));
-      } catch (parseError) {
-        errorMessage = `HTTP error ${response.status}: ${response.statusText}`;
+      // Only add temperature for models that support it
+      // Reasoning models (o1, o1-mini, o3-mini) don't support temperature
+      if (!modelStr.startsWith('o1') && !modelStr.startsWith('o3')) {
+        payload.temperature = 0.7;
       }
-      throw new Error(`OpenAI API error: ${errorMessage}`);
-    }
 
-    const data = await response.json();
-    console.info(`OpenAI API response status: ${response.status}, data structure: ${JSON.stringify({
-      id: data.id?.substring(0, 10) || 'missing',
-      object: data.object || 'missing',
-      model: data.model || 'missing',
-      choicesLength: data.choices?.length || 0,
-      contentLength: data.choices?.[0]?.message?.content?.length || 0
-    })}`);
-    
-    // Validate response structure
-    if (!data || !data.choices || !data.choices.length) {
-      console.error('❌ Invalid response structure from OpenAI:', JSON.stringify(data));
-      throw new Error('Invalid response structure from OpenAI API');
+      console.info(`Payload structure: ${JSON.stringify({
+        model: payload.model,
+        messageCount: payload.messages.length,
+        firstMessageRole: payload.messages[0]?.role,
+        messageTypes: payload.messages.map(m => m.role).join(','),
+        tokenParam: payload.max_tokens ? 'max_tokens' : 'max_completion_tokens',
+        tokenValue: payload.max_tokens || payload.max_completion_tokens,
+        modelMaxLimit: getMaxCompletionTokens(model),
+        estimatedPromptTokens: estimateTokenCount(systemPrompt || '') + estimateTokenCount(userPrompt || ''),
+        responseFormat: payload.response_format?.type || 'text'
+      })}`);
+
+      // Log the actual request for debugging
+      const reqBody = JSON.stringify(payload);
+      console.info(`OpenAI request body preview (first 200 chars): ${reqBody.substring(0, 200)}...`);
+      
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: reqBody,
+      });
+
+      if (!response.ok) {
+        let errorMessage = 'Unknown error';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error?.message || 
+                        errorData.error?.code || 
+                        `HTTP error ${response.status}`;
+          console.error('OpenAI API error details:', JSON.stringify(errorData));
+        } catch (parseError) {
+          errorMessage = `HTTP error ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(`OpenAI API error: ${errorMessage}`);
+      }
+
+      const data = await response.json();
+      console.info(`OpenAI API response status: ${response.status}, data structure: ${JSON.stringify({
+        id: data.id?.substring(0, 10) || 'missing',
+        object: data.object || 'missing',
+        model: data.model || 'missing',
+        choicesLength: data.choices?.length || 0,
+        contentLength: data.choices?.[0]?.message?.content?.length || 0,
+        finishReason: data.choices?.[0]?.finish_reason || 'unknown'
+      })}`);
+      
+      // Validate response structure
+      if (!data || !data.choices || !data.choices.length) {
+        console.error('❌ Invalid response structure from OpenAI:', JSON.stringify(data));
+        throw new Error('Invalid response structure from OpenAI API');
+      }
+      
+      const content = data.choices[0]?.message?.content;
+      
+      if (!content) {
+        console.error('❌ Empty content in OpenAI response:', JSON.stringify(data.choices[0]));
+        
+        // Enhanced logging for troubleshooting empty content issues
+        console.error('Response debug info:', {
+          model,
+          finishReason: data.choices[0]?.finish_reason,
+          promptLength: (systemPrompt?.length || 0) + (userPrompt?.length || 0), 
+          tokensRequested: payload.max_tokens || payload.max_completion_tokens,
+          modelMaxLimit: getMaxCompletionTokens(model),
+          tokensAvailable: data.model_context_size || 'unknown',
+          promptTokens: data.usage?.prompt_tokens || 'unknown',
+          completionTokens: data.usage?.completion_tokens || 'unknown',
+          totalTokens: data.usage?.total_tokens || 'unknown'
+        });
+        
+        // Check if it's due to length constraint
+        if (data.choices[0]?.finish_reason === 'length') {
+          console.warn('Response was truncated due to length constraints. Attempting chunked processing...');
+          // Fall back to chunked processing for this case
+          return processWithChunkedStrategy('openai', model, systemPrompt, userPrompt, apiKey);
+        } else if (data.choices[0]?.finish_reason === 'content_filter') {
+          throw new Error('Empty content in OpenAI response due to content filter');
+        } else {
+          throw new Error('Empty content in OpenAI response');
+        }
+      }
+      
+      // Check if content is valid JSON when requested
+      if (payload.response_format?.type === 'json_object') {
+        try {
+          JSON.parse(content);
+        } catch (jsonError) {
+          console.warn('Response was supposed to be JSON but failed to parse:', jsonError);
+        }
+      }
+      
+      return content;
+    } catch (error: any) {
+      // If we got a parameter error and haven't tried the alternative yet, try with the other parameter
+      if (!isTryingFallbackParameters && 
+          error.message && 
+          error.message.includes('Unsupported parameter') &&
+          (error.message.includes('max_tokens') || error.message.includes('max_completion_tokens'))) {
+        
+        console.warn('Parameter error detected. Trying alternative parameter format...');
+        isTryingFallbackParameters = true;
+        throw new Error(`[Parameter error] ${error.message}. Attempting to use alternative parameter.`);
+      }
+      
+      throw error; // Let the outer catch handle other errors
     }
-    
-    const content = data.choices[0]?.message?.content;
-    
-    if (!content) {
-      console.error('❌ Empty content in OpenAI response:', JSON.stringify(data.choices[0]));
-      throw new Error('Empty content in OpenAI response');
-    }
-    
-    return content;
+  };
+
+  try {
+    return await tryCall();
   } catch (error: any) {
+    // If we got a parameter error and haven't tried the alternative yet, try with the other parameter
+    if (!isTryingFallbackParameters && 
+        error.message && 
+        error.message.includes('Unsupported parameter') &&
+        (error.message.includes('max_tokens') || error.message.includes('max_completion_tokens'))) {
+      
+      console.warn('Parameter error detected. Trying alternative parameter format...');
+      isTryingFallbackParameters = true;
+      try {
+        return await tryCall(true);
+      } catch (fallbackError: any) {
+        console.error('Fallback attempt also failed:', fallbackError);
+        throw fallbackError; // Propagate the error from the fallback attempt
+      }
+    }
+    
     // Handle network errors or other exceptions
     if (error.name === 'AbortError') {
       throw new Error('OpenAI API request timed out');

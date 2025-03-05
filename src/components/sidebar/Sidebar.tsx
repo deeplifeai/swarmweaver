@@ -183,7 +183,7 @@ export function Sidebar() {
             onClick={() => setIsKeysDialogOpen(true)}
           >
             <Settings className="mr-2 h-4 w-4" />
-            API Keys
+            Settings
           </Button>
         )}
         

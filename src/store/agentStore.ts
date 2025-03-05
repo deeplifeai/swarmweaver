@@ -4,6 +4,7 @@ import { saveAs } from 'file-saver';
 import { encryptData, decryptData } from '@/utils/encryption';
 import { toast } from 'sonner';
 import { useState } from 'react';
+import { responseCache } from '@/services/cacheService';
 
 interface AgentState {
   agents: Agent[];
@@ -13,6 +14,10 @@ interface AgentState {
   apiKey: {
     openai: string;
     perplexity: string;
+  };
+  cacheStats: {
+    enabled: boolean;
+    size: number;
   };
   
   // Agent CRUD actions
@@ -40,6 +45,11 @@ interface AgentState {
   // API Keys
   setApiKey: (provider: AIProvider, key: string) => void;
   loadApiKeys: () => { openai: string; perplexity: string };
+  
+  // Cache management
+  clearResponseCache: () => void;
+  toggleCacheEnabled: () => void;
+  updateCacheStats: () => void;
   
   // Save functions
   saveAgentToLibrary: (node: AgentNode) => void;
@@ -121,6 +131,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   edges: initialState.edges || [],
   executionResults: {},
   apiKey: loadApiKeys(), // Initialize with stored keys
+  cacheStats: { enabled: true, size: 0 },
   
   addAgent: (agent) => set((state) => ({
     agents: [...state.agents, { ...agent, id: generateId() }]
@@ -340,5 +351,38 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return true;
     }
     return false;
+  },
+
+  clearResponseCache: () => {
+    responseCache.clearCache();
+    set((state) => ({
+      cacheStats: {
+        ...state.cacheStats,
+        size: 0
+      }
+    }));
+    toast.success('Response cache cleared');
+  },
+
+  toggleCacheEnabled: () => {
+    set((state) => {
+      const newEnabled = !state.cacheStats.enabled;
+      responseCache.setEnabled(newEnabled);
+      return {
+        cacheStats: {
+          ...state.cacheStats,
+          enabled: newEnabled
+        }
+      };
+    });
+  },
+
+  updateCacheStats: () => {
+    set((state) => ({
+      cacheStats: {
+        enabled: responseCache.isEnabled(),
+        size: responseCache.getCacheSize()
+      }
+    }));
   }
 }));

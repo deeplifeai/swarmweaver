@@ -5,6 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAgentStore } from '@/store/agentStore';
 import { toast } from 'sonner';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CacheControls } from '@/components/settings/CacheControls';
+import { Key, DatabaseZap } from 'lucide-react';
 
 interface APIKeysDialogProps {
   isOpen: boolean;
@@ -17,6 +20,7 @@ export function APIKeysDialog({ isOpen, onClose }: APIKeysDialogProps) {
   
   const [openaiKey, setOpenaiKey] = React.useState(apiKeys.openai || '');
   const [perplexityKey, setPerplexityKey] = React.useState(apiKeys.perplexity || '');
+  const [activeTab, setActiveTab] = React.useState('api-keys');
   
   // Update local state when store changes or dialog opens
   useEffect(() => {
@@ -38,48 +42,66 @@ export function APIKeysDialog({ isOpen, onClose }: APIKeysDialogProps) {
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-md glass-panel animate-scale-in">
         <DialogHeader>
-          <DialogTitle>Configure API Keys</DialogTitle>
+          <DialogTitle>Settings</DialogTitle>
           <DialogDescription>
-            Your API keys are stored securely in your browser's local storage and will persist between sessions.
+            Configure your API keys and application settings
           </DialogDescription>
         </DialogHeader>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="openai">OpenAI API Key</Label>
-            <Input
-              id="openai"
-              type="password"
-              value={openaiKey}
-              onChange={(e) => setOpenaiKey(e.target.value)}
-              placeholder="sk-..."
-            />
-            <p className="text-xs text-muted-foreground">
-              Get your key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-primary underline">OpenAI</a>
-            </p>
-          </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="api-keys" className="flex items-center gap-2">
+              <Key className="h-4 w-4" />
+              API Keys
+            </TabsTrigger>
+            <TabsTrigger value="cache" className="flex items-center gap-2">
+              <DatabaseZap className="h-4 w-4" />
+              Cache
+            </TabsTrigger>
+          </TabsList>
           
-          <div className="space-y-2">
-            <Label htmlFor="perplexity">Perplexity API Key</Label>
-            <Input
-              id="perplexity"
-              type="password"
-              value={perplexityKey}
-              onChange={(e) => setPerplexityKey(e.target.value)}
-              placeholder="pplx-..."
-            />
-            <p className="text-xs text-muted-foreground">
-              Get your key from <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noreferrer" className="text-primary underline">Perplexity</a>
-            </p>
-          </div>
+          <TabsContent value="api-keys" className="mt-4">
+            <form onSubmit={handleSubmit}>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="openai-api-key">OpenAI API Key</Label>
+                  <Input
+                    id="openai-api-key"
+                    type="password"
+                    placeholder="sk-..."
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Get your key from <a href="https://platform.openai.com/account/api-keys" target="_blank" rel="noreferrer" className="text-primary underline">OpenAI</a>
+                  </p>
+                </div>
+                
+                <div className="grid gap-2">
+                  <Label htmlFor="perplexity-api-key">Perplexity API Key</Label>
+                  <Input
+                    id="perplexity-api-key"
+                    type="password"
+                    placeholder="pplx-..."
+                    value={perplexityKey}
+                    onChange={(e) => setPerplexityKey(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Get your key from <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noreferrer" className="text-primary underline">Perplexity</a>
+                  </p>
+                </div>
+              </div>
+              
+              <DialogFooter>
+                <Button type="submit">Save API Keys</Button>
+              </DialogFooter>
+            </form>
+          </TabsContent>
           
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit">Save Keys</Button>
-          </DialogFooter>
-        </form>
+          <TabsContent value="cache" className="mt-4">
+            <CacheControls />
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );

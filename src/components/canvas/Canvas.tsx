@@ -24,6 +24,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 import { AgentExecutionResult } from '@/types/agent';
+import { formatCombinedInputs } from '@/utils/tokenManager';
+import { processWithChunkedStrategy } from '@/services/optimizationService';
 
 const nodeTypes: NodeTypes = {
   agent: AgentNode,
@@ -213,10 +215,11 @@ export function FlowCanvas() {
           'You are a helpful AI assistant. Respond to the user input below in a clear and concise manner.' : 
           systemPrompt;
 
-        const combinedInput = [
+        // Use our improved format function for combined inputs
+        const combinedInput = formatCombinedInputs([
           ...node.data.inputs,
           ...dependencyOutputs
-        ].join('\n\n---\n\n');
+        ]);
 
         if (!combinedInput) {
           throw new Error('No input provided for agent');
@@ -228,16 +231,40 @@ export function FlowCanvas() {
 
         console.info(`Generating agent response for node ${nodeId}`);
         try {
-          output = await generateAgentResponse(
-            agent.provider,
-            agent.model,
-            effectiveSystemPrompt,
-            combinedInput
-          );
+          // Check if input is very large and might benefit from chunked processing
+          if (combinedInput.length > 10000) {
+            console.info(`Node ${nodeId} has large input (${combinedInput.length} chars), using optimized processing`);
+            // Get the API key for the provider
+            const apiKey = useAgentStore.getState().apiKey[agent.provider];
+            
+            // Process with chunked strategy directly if input is very large
+            output = await processWithChunkedStrategy(
+              agent.provider,
+              agent.model,
+              effectiveSystemPrompt,
+              combinedInput,
+              apiKey
+            );
+          } else {
+            // Standard processing for normal-sized inputs
+            output = await generateAgentResponse(
+              agent.provider,
+              agent.model,
+              effectiveSystemPrompt,
+              combinedInput
+            );
+          }
           
-          // Check if output indicates an error
+          // Check if output indicates an error - handle both legacy and new formats
           if (output.startsWith('[Error:')) {
             throw new Error(output.substring(8, output.length - 1));
+          }
+          
+          // Check for our special error format [ERROR::message]
+          if (output.startsWith('[ERROR::')) {
+            const errorMessage = output.substring(8, output.length - 1);
+            console.error(`Error detected in agent response: ${errorMessage}`);
+            throw new Error(errorMessage);
           }
           
           console.info(`Agent response received for node ${nodeId}`);
@@ -251,6 +278,18 @@ export function FlowCanvas() {
       if (!output || output.trim().length === 0) {
         console.warn(`Empty output returned for node ${nodeId} without error`);
         output = "[Warning: Empty response received from the API]";
+        
+        // Mark as error instead of completed
+        const result = {
+          nodeId,
+          output,
+          status: 'error' as const,
+          error: 'Empty response received from the API'
+        };
+        
+        useAgentStore.getState().setExecutionResult(result);
+        console.info(`Node ${nodeId} processed with error: Empty response`);
+        return result;
       }
 
       useAgentStore.getState().setNodeOutput(nodeId, output);
@@ -580,17 +619,8 @@ export function FlowCanvas() {
 
   // Helper function to format concatenated inputs
   const formatConcatenatedInputs = (inputs: string[]): string => {
-    if (inputs.length === 0) return '';
-    if (inputs.length === 1) return inputs[0];
-    
-    // Join inputs with clear separators
-    return inputs
-      .filter(input => input && input.trim()) // Filter out empty inputs
-      .map((input, index) => {
-        // Add a header for each input if there are multiple
-        return `--- INPUT ${index + 1} ---\n${input}\n`;
-      })
-      .join('\n');
+    // Use the utility function from tokenManager
+    return formatCombinedInputs(inputs);
   };
 
   return (

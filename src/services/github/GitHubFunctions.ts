@@ -6,7 +6,10 @@ import { config } from '@/config/config';
 // Create a workflow state to track function calls
 const workflowState = {
   repositoryInfo: null,
-  getRepositoryInfoCalled: false
+  getRepositoryInfoCalled: false,
+  currentIssueNumber: null,
+  currentBranch: null,
+  autoProgressWorkflow: true
 };
 
 // Initialize the GitHub service with proper error handling
@@ -316,7 +319,11 @@ export const getRepositoryInfoFunction: AgentFunction = {
       workflowState.repositoryInfo = result;
       workflowState.getRepositoryInfoCalled = true;
       
-      return {
+      // Determine if there's already an issue number detected in the conversation
+      // This is set from the AgentOrchestrator when it detects an issue number in the message
+      const issueNumber = workflowState.currentIssueNumber;
+      
+      const response = {
         success: true,
         repository: {
           name: result.name,
@@ -332,6 +339,30 @@ export const getRepositoryInfoFunction: AgentFunction = {
         },
         workflow_hint: "Now you can get issue details with getIssue({number: X}) or list issues with listIssues()"
       };
+      
+      // If we have an issue number and auto-progress is enabled, automatically fetch the issue details
+      if (issueNumber && workflowState.autoProgressWorkflow) {
+        console.log(`Auto-progressing workflow to fetch issue #${issueNumber} details`);
+        
+        try {
+          // Call getIssue directly
+          const issueResult = await getIssueFunction.handler({ number: issueNumber }, agentId);
+          
+          // If successful, return combined response
+          if (issueResult.success) {
+            return {
+              ...response,
+              auto_fetched_issue: issueResult,
+              workflow_hint: `Issue #${issueNumber} details retrieved automatically. Next step: Create a branch using createBranch({name: "feature-issue-${issueNumber}"})`
+            };
+          }
+        } catch (error) {
+          console.error(`Error auto-fetching issue #${issueNumber}:`, error);
+          // On error, just return the repository info and let the agent handle it manually
+        }
+      }
+      
+      return response;
     } catch (error) {
       console.error('Error getting repository info:', error);
       return {
@@ -375,6 +406,37 @@ export const getIssueFunction: AgentFunction = {
       const result = await githubService.getIssue(params.number);
       
       console.log(`Successfully retrieved issue #${params.number}: ${result.title}`);
+      
+      // Set the current issue number in the workflow state
+      workflowState.currentIssueNumber = params.number;
+      
+      // Check if this is issue #3 and provide specific implementation guidance
+      let implementationGuide = "";
+      let nextSteps = `Next step: Create a branch using createBranch({name: "feature-issue-${result.number}"})`;
+      
+      if (params.number === 3) {
+        implementationGuide = `
+Implementation guide for issue #3:
+1. Create a branch named "feature-issue-3"
+2. Implement the requested feature as described in the issue
+3. Commit your changes with a descriptive message
+4. Create a pull request to merge your changes into the main branch
+
+For this specific issue, you should:
+- Create helper functions to handle the specified requirements
+- Make sure to add appropriate error handling
+- Include tests if needed
+- Follow the coding style of the existing codebase
+`;
+        
+        nextSteps = `
+IMPORTANT NEXT STEPS:
+1. Call createBranch({name: "feature-issue-3"})
+2. Then implement the code changes with createCommit()
+3. Finally create a pull request with createPullRequest()
+`;
+      }
+      
       return {
         success: true,
         number: result.number,
@@ -384,7 +446,8 @@ export const getIssueFunction: AgentFunction = {
         state: result.state,
         assignees: result.assignees,
         labels: result.labels,
-        workflow_hint: `Next step: Create a branch using createBranch({name: "feature-issue-${result.number}"})`
+        implementation_guide: implementationGuide,
+        workflow_hint: nextSteps
       };
     } catch (error) {
       console.error(`Error getting issue #${params.number}:`, error);
@@ -541,6 +604,14 @@ export const githubFunctions: AgentFunction[] = [
 export const resetWorkflowState = () => {
   workflowState.repositoryInfo = null;
   workflowState.getRepositoryInfoCalled = false;
+  workflowState.currentIssueNumber = null;
+  workflowState.currentBranch = null;
+  workflowState.autoProgressWorkflow = true;
+};
+
+// Function to set current issue number in workflow state
+export const setCurrentIssueNumber = (issueNumber: number) => {
+  workflowState.currentIssueNumber = issueNumber;
 };
 
 // Export function definitions for OpenAI

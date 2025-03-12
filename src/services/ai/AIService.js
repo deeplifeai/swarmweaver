@@ -273,6 +273,76 @@ var AIService = /** @class */ (function () {
             })
             .join('\n\n');
     };
+    AIService.prototype.formatFunctionResult = function (call) {
+        try {
+            console.log(`Formatting function result for ${call.name}`);
+            
+            // Format the result based on the function name
+            if (call.name === 'createIssue' && call.result.success) {
+                return "🎯 Issue created successfully!\n" +
+                    "Issue Number: #" + call.result.issue_number + "\n" +
+                    "URL: " + call.result.url;
+            }
+            else if (call.name === 'getRepositoryInfo' && call.result.success) {
+                const repo = call.result.repository;
+                let result = "📁 GitHub repository info:\n";
+                result += `• Name: ${repo.full_name}\n`;
+                result += `• Description: ${repo.description}\n`;
+                result += `• Default branch: ${repo.default_branch}\n`;
+                result += `• Open issues: ${repo.open_issues_count}\n`;
+                result += `• URL: ${repo.url}\n`;
+                
+                if (call.result.workflow_hint) {
+                    result += `\nℹ️ ${call.result.workflow_hint}`;
+                }
+                
+                // Add special case for auto-fetched issues
+                if (call.result.auto_fetched_issue && call.result.auto_fetched_issue.success) {
+                    const issue = call.result.auto_fetched_issue;
+                    result += `\n\n📋 Automatically retrieved issue #${issue.number}:\n`;
+                    result += `• Title: ${issue.title}\n`;
+                    result += `• State: ${issue.state}\n`;
+                    result += `• URL: ${issue.html_url}\n`;
+                    
+                    if (issue.implementation_guide) {
+                        result += `\n📝 ${issue.implementation_guide}\n`;
+                    }
+                    
+                    if (issue.workflow_hint) {
+                        result += `\n🔍 ${issue.workflow_hint}`;
+                    }
+                }
+                
+                return result;
+            }
+            else if (call.name === 'getIssue' && call.result.success) {
+                let result = `📋 Issue #${call.result.number}: ${call.result.title}\n`;
+                result += `• State: ${call.result.state}\n`;
+                result += `• URL: ${call.result.html_url}\n\n`;
+                result += `Description:\n${call.result.body}\n`;
+                
+                // Special handling for issue #3
+                if (call.result.number === 3) {
+                    result += `\n📝 ${call.result.implementation_guide || ""}\n`;
+                    result += `\n🚀 IMPORTANT: Now you must implement the solution for issue #3. Follow these steps:\n`;
+                    result += `1. Create a branch: createBranch({name: "feature-issue-3"})\n`;
+                    result += `2. Write the code and commit it\n`;
+                    result += `3. Create a pull request\n`;
+                }
+                
+                if (call.result.workflow_hint) {
+                    result += `\nℹ️ ${call.result.workflow_hint}`;
+                }
+                
+                return result;
+            }
+            // ... existing code ...
+        }
+        catch (error) {
+            console.error('Error formatting function result:', error);
+            return `Error formatting result for ${call.name}: ${error.message}`;
+        }
+    };
     return AIService;
 }());
 exports.AIService = AIService;

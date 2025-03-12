@@ -5,6 +5,7 @@ import { SlackService } from '@/services/slack/SlackService';
 import { AIService } from '@/services/ai/AIService';
 import { config } from '@/config/config';
 import { eventBus, EventType } from '@/utils/EventBus';
+import { setCurrentIssueNumber } from '../github/GitHubFunctions';
 
 export class AgentOrchestrator {
   private slackService: SlackService;
@@ -75,7 +76,7 @@ export class AgentOrchestrator {
       const issueNumbers = this.extractIssueNumbers(message.content);
       if (issueNumbers.length > 0) {
         // Add explicit instruction to get the issue if message mentions issue numbers
-        enhancedMessage = `${message.content}\n\nIMPORTANT: The message mentions issue #${issueNumbers[0]}. Remember to first call getIssue({number: ${issueNumbers[0]}}) to get details about this issue before implementation.`;
+        enhancedMessage = `${message.content}\n\nIMPORTANT: The message mentions issue #${issueNumbers[0]}. Remember to first call getRepositoryInfo() and then getIssue({number: ${issueNumbers[0]}}) to get details about this issue before implementation.`;
       }
       
       // Generate response from agent
@@ -163,5 +164,44 @@ export class AgentOrchestrator {
     return matches
       .map(match => parseInt(match[1] || match[2], 10))
       .filter(num => !isNaN(num));
+  }
+
+  private async handleAgentMessage(message: AgentMessage) {
+    // Extract mentions from the message
+    if (!message.mentions || message.mentions.length === 0) {
+      console.log('No mentions in message, ignoring');
+      return;
+    }
+    
+    console.log('Agent message received:', JSON.stringify(message, null, 2));
+    eventBus.emit(EventType.AGENT_MESSAGE_RECEIVED, message);
+    
+    // Check if this is a message with specific agent mentions
+    if (message.mentions.length === 1) {
+      console.log('Message with mentions targeting only first agent:', message.mentions[0]);
+      
+      // Determine which agent to use for this message
+      const agent = this.determineAgentFromContent(message.content);
+      if (agent) {
+        // Extract issue numbers from the message
+        const issueNumbers = this.extractIssueNumbers(message.content);
+        if (issueNumbers.length > 0) {
+          console.log(`Extracted issue #${issueNumbers[0]} from message content`);
+          
+          // Set the current issue number in the GitHubFunctions workflow state
+          setCurrentIssueNumber(issueNumbers[0]);
+        }
+        
+        return this.processAgentRequest(agent, message);
+      }
+    }
+    
+    // If we can't determine which agent to use, pick the first one mentioned
+    const firstMentionedAgent = this.agents.find(a => a.id === message.mentions[0]);
+    if (firstMentionedAgent) {
+      return this.processAgentRequest(firstMentionedAgent, message);
+    }
+    
+    console.log('No valid agent found for mentions:', message.mentions);
   }
 } 

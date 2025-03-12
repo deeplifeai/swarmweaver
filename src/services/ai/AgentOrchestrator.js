@@ -39,6 +39,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentOrchestrator = void 0;
 var EventBus_1 = require("@/utils/EventBus");
 var Agent_1 = require("@/types/agents/Agent");
+var SlackService_1 = require("../slack/SlackService");
+var GitHubFunctions_1 = require("../github/GitHubFunctions");
 var AgentOrchestrator = /** @class */ (function () {
     function AgentOrchestrator(slackService, aiService) {
         this.agents = {};
@@ -332,12 +334,18 @@ var AgentOrchestrator = /** @class */ (function () {
                     state.currentPhase = 'issue_created';
                     state.taskDescription = call.arguments.title;
                     console.log(`Workflow state updated: Issue #${state.issueNumber} created`);
+                    
+                    // Set the issue number in the GitHubFunctions workflow state
+                    (0, GitHubFunctions_1.setCurrentIssueNumber)(state.issueNumber);
                 }
                 else if (call.name === 'getIssue' && call.result && call.result.success && call.result.number) {
                     state.issueNumber = call.result.number;
                     state.currentPhase = 'issue_retrieved';
                     state.taskDescription = call.result.title;
                     console.log(`Workflow state updated: Issue #${state.issueNumber} retrieved`);
+                    
+                    // Set the issue number in the GitHubFunctions workflow state
+                    (0, GitHubFunctions_1.setCurrentIssueNumber)(state.issueNumber);
                 }
                 else if (call.name === 'createBranch' && call.result && call.result.success) {
                     state.currentPhase = 'branch_created';
@@ -369,6 +377,9 @@ var AgentOrchestrator = /** @class */ (function () {
         if (issueMatch && !state.issueNumber && /issue|task/i.test(message.content)) {
             state.issueNumber = parseInt(issueMatch[1]);
             console.log(`Extracted issue #${state.issueNumber} from message content`);
+            
+            // Set the extracted issue number in the GitHubFunctions workflow state
+            (0, GitHubFunctions_1.setCurrentIssueNumber)(state.issueNumber);
         }
         
         const prMatch = message.content.match(/PR\s*#?(\d+)|pull\s*request\s*#?(\d+)/i);

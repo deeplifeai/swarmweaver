@@ -283,6 +283,30 @@ This repository was automatically initialized by the SwarmWeaver system.
     }
   }
 
+  // Check if a branch exists
+  async branchExists(branchName: string, repository?: GitHubRepository): Promise<boolean> {
+    const { owner, repo } = repository || this.defaultRepo;
+    
+    try {
+      await this.octokit.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${branchName}`
+      });
+      
+      // If we get here, the branch exists
+      return true;
+    } catch (error) {
+      // If we get a 404, the branch doesn't exist
+      if (error.status === 404) {
+        return false;
+      }
+      
+      // For other errors, we should throw them
+      throw error;
+    }
+  }
+
   // Repositories
   async getRepository(repository?: GitHubRepository): Promise<any> {
     const { owner, repo } = repository || this.defaultRepo;

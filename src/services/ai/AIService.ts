@@ -121,10 +121,18 @@ export class AIService {
         if (call.name === 'createIssue' && call.result.success) {
           return `✅ Created GitHub issue #${call.result.issue_number}: "${call.arguments.title}"\n📎 ${call.result.url}`;
         } 
+        else if (call.name === 'getIssue' && call.result.success) {
+          return `📋 GitHub issue #${call.result.number}: "${call.result.title}"\n\n${call.result.body}\n\n📎 ${call.result.html_url}`;
+        }
         else if (call.name === 'createPullRequest' && call.result.success) {
           return `✅ Created GitHub pull request #${call.result.pr_number}: "${call.arguments.title}"\n📎 ${call.result.url}`;
         }
         else if (call.name === 'createCommit' && call.result.success) {
+          // Check if branch was automatically created during commit
+          if (call.result.message && call.result.message.includes('Branch') && call.result.message.includes('was created')) {
+            const branchName = call.arguments.branch || 'main';
+            return `🔄 Branch \`${branchName}\` was automatically created\n✅ Committed changes: "${call.arguments.message}"`;
+          }
           return `✅ Created GitHub commit ${call.result.commit_sha.substring(0, 7)}: "${call.arguments.message}"`;
         }
         else if (call.name === 'createBranch' && call.result.success) {

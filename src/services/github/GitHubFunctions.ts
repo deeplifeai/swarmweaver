@@ -67,11 +67,45 @@ export const createPullRequestFunction: AgentFunction = {
   },
   handler: async (params, agentId) => {
     try {
+      console.log(`Agent ${agentId} is creating a pull request from ${params.head} to ${params.base || 'main'}`);
+      
+      // First check if the head branch exists
+      const branchExists = await githubService.branchExists(params.head);
+      if (!branchExists) {
+        console.error(`Branch ${params.head} does not exist for PR creation`);
+        
+        // Try to create the branch automatically, though this likely won't help without commits
+        try {
+          console.log(`Attempting to create branch ${params.head} automatically...`);
+          await githubService.createBranch(params.head, 'main');
+          console.log(`Branch ${params.head} created, but it has no commits. You need to commit changes to it.`);
+          
+          return {
+            success: false,
+            error: `⚠️ CRITICAL WORKFLOW ERROR: Branch '${params.head}' was created but has no commits. 
+You MUST follow this exact workflow:
+1. First create a branch with createBranch({name: "${params.head}"})
+2. Then commit your changes with createCommit({files: [...], branch: "${params.head}"})
+3. Only then create a PR with createPullRequest`
+          };
+        } catch (branchError) {
+          return {
+            success: false,
+            error: `⚠️ CRITICAL WORKFLOW ERROR: Branch '${params.head}' doesn't exist. 
+You MUST follow this exact workflow:
+1. First create a branch with createBranch({name: "${params.head}"})
+2. Then commit your changes with createCommit({files: [...], branch: "${params.head}"})
+3. Only then create a PR with createPullRequest`
+          };
+        }
+      }
+      
+      // If we made it here, the branch exists, so create the PR
       const result = await githubService.createPullRequest({
         title: params.title,
         body: params.body,
         head: params.head,
-        base: params.base,
+        base: params.base || 'main',
         draft: params.draft
       });
       
@@ -83,9 +117,20 @@ export const createPullRequestFunction: AgentFunction = {
       };
     } catch (error) {
       console.error('Error creating pull request:', error);
+      
+      // Make the error message more helpful
+      let errorMessage = error.message;
+      if (error.message && error.message.includes('Validation Failed') && error.message.includes('head')) {
+        errorMessage = `⚠️ CRITICAL WORKFLOW ERROR: Invalid branch name '${params.head}'. 
+You MUST follow this exact workflow:
+1. First create a branch with createBranch({name: "${params.head}"})
+2. Then commit your changes with createCommit({files: [...], branch: "${params.head}"})
+3. Only then create a PR with createPullRequest`;
+      }
+      
       return {
         success: false,
-        error: error.message
+        error: errorMessage
       };
     }
   }
@@ -105,25 +150,73 @@ export const createCommitFunction: AgentFunction = {
   },
   handler: async (params, agentId) => {
     try {
-      console.log(`Agent ${agentId} is creating a commit with message: ${params.message}`);
+      const branchName = params.branch || 'main';
+      console.log(`Agent ${agentId} is creating a commit with message: ${params.message} on branch: ${branchName}`);
       
-      const result = await githubService.createCommit({
-        message: params.message,
-        files: params.files.map((file: any) => ({
-          path: file.path,
-          content: file.content
-        })),
-        branch: params.branch
-      });
+      // Check if the branch exists first
+      const branchExists = await githubService.branchExists(branchName);
       
-      console.log(`Commit created successfully: ${result.sha.substring(0, 7)}`);
-      return {
-        success: true,
-        commit_sha: result.sha,
-        message: `Commit ${result.sha.substring(0, 7)} created successfully`
-      };
+      // If branch doesn't exist and it's not the main branch, create it automatically
+      if (!branchExists && branchName !== 'main') {
+        console.log(`Branch ${branchName} does not exist. Creating it automatically...`);
+        
+        try {
+          await githubService.createBranch(branchName, 'main');
+          console.log(`Branch ${branchName} created successfully. Proceeding with commit...`);
+        } catch (branchError) {
+          console.error('Error creating branch:', branchError);
+          return {
+            success: false,
+            error: `⚠️ IMPORTANT: You must create a branch before committing to it. Please call createBranch({name: "${branchName}"}) first, then retry your commit.`
+          };
+        }
+      }
+      
+      // Now try to create the commit (branch should exist now)
+      try {
+        const result = await githubService.createCommit({
+          message: params.message,
+          files: params.files.map((file: any) => ({
+            path: file.path,
+            content: file.content
+          })),
+          branch: branchName
+        });
+        
+        console.log(`Commit created successfully: ${result.sha.substring(0, 7)}`);
+        
+        // If we created the branch automatically, add that to the success message
+        if (!branchExists && branchName !== 'main') {
+          return {
+            success: true,
+            commit_sha: result.sha,
+            message: `Branch ${branchName} was automatically created and commit ${result.sha.substring(0, 7)} was added successfully`
+          };
+        } else {
+          return {
+            success: true,
+            commit_sha: result.sha,
+            message: `Commit ${result.sha.substring(0, 7)} created successfully`
+          };
+        }
+      } catch (commitError) {
+        console.error('Error creating commit:', commitError);
+        
+        // If we still get an error after creating the branch, provide a more specific error message
+        if (!branchExists && branchName !== 'main') {
+          return {
+            success: false,
+            error: `❌ Failed to commit to newly created branch ${branchName}. Error: ${commitError.message}`
+          };
+        } else {
+          return {
+            success: false,
+            error: commitError.message
+          };
+        }
+      }
     } catch (error) {
-      console.error('Error creating commit:', error);
+      console.error('Error in createCommit function:', error);
       
       // Check if the error message indicates an empty repository
       if (error.message && error.message.includes('Git Repository is empty')) {
@@ -132,7 +225,7 @@ export const createCommitFunction: AgentFunction = {
       
       return {
         success: false,
-        error: error.message
+        error: `Error handling commit: ${error.message}. Please follow the workflow: 1) createBranch 2) createCommit 3) createPullRequest`
       };
     }
   }
@@ -215,6 +308,39 @@ export const getRepositoryInfoFunction: AgentFunction = {
   }
 };
 
+// Get Issue Function
+export const getIssueFunction: AgentFunction = {
+  name: 'getIssue',
+  description: 'Gets information about a specific GitHub issue by number',
+  parameters: {
+    number: { type: 'number', description: 'The issue number to retrieve' }
+  },
+  handler: async (params, agentId) => {
+    try {
+      console.log(`Agent ${agentId} is retrieving issue #${params.number}`);
+      
+      const result = await githubService.getIssue(params.number);
+      
+      return {
+        success: true,
+        number: result.number,
+        title: result.title,
+        body: result.body,
+        html_url: result.html_url,
+        state: result.state,
+        assignees: result.assignees,
+        labels: result.labels
+      };
+    } catch (error) {
+      console.error(`Error getting issue #${params.number}:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+};
+
 // Create Branch Function
 export const createBranchFunction: AgentFunction = {
   name: 'createBranch',
@@ -255,7 +381,8 @@ export const githubFunctions: AgentFunction[] = [
   createCommitFunction,
   createReviewFunction,
   getRepositoryInfoFunction,
-  createBranchFunction
+  createBranchFunction,
+  getIssueFunction
 ];
 
 // Export function definitions for OpenAI
@@ -266,7 +393,7 @@ export const githubFunctionDefinitions: OpenAIFunctionDefinition[] = githubFunct
     type: 'object',
     properties: func.parameters,
     required: Object.keys(func.parameters).filter(key => 
-      !['draft', 'assignees', 'labels', 'branch', 'comments'].includes(key)
+      !['draft', 'assignees', 'labels', 'branch', 'comments', 'source'].includes(key)
     )
   }
 })); 

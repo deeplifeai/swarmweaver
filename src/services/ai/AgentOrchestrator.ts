@@ -70,10 +70,18 @@ export class AgentOrchestrator {
       const conversationId = this.getConversationId(message.channel, message.replyToMessageId);
       const history = this.getConversationHistory(conversationId);
       
+      // Extract issue number from message if possible
+      let enhancedMessage = message.content;
+      const issueNumbers = this.extractIssueNumbers(message.content);
+      if (issueNumbers.length > 0) {
+        // Add explicit instruction to get the issue if message mentions issue numbers
+        enhancedMessage = `${message.content}\n\nIMPORTANT: The message mentions issue #${issueNumbers[0]}. Remember to first call getIssue({number: ${issueNumbers[0]}}) to get details about this issue before implementation.`;
+      }
+      
       // Generate response from agent
       const { response, functionCalls } = await this.aiService.generateAgentResponse(
         agent,
-        message.content,
+        enhancedMessage,
         history
       );
       
@@ -145,5 +153,15 @@ export class AgentOrchestrator {
     if (this.conversations[conversationId].length > 10) {
       this.conversations[conversationId] = this.conversations[conversationId].slice(-10);
     }
+  }
+  
+  // Extract issue numbers from a message
+  private extractIssueNumbers(text: string): number[] {
+    const issueRegex = /\bissue\s*#?(\d+)\b|\b#(\d+)\b/gi;
+    const matches = Array.from(text.matchAll(issueRegex));
+    
+    return matches
+      .map(match => parseInt(match[1] || match[2], 10))
+      .filter(num => !isNaN(num));
   }
 } 

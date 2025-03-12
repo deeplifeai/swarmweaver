@@ -11,25 +11,54 @@ import { config } from '@/config/config';
 export class GitHubService {
   private octokit: Octokit;
   private defaultRepo: GitHubRepository;
+  private isInitialized: boolean = false;
 
   constructor(token?: string, defaultRepo?: GitHubRepository) {
     const authToken = token || config.github.token;
+    
+    if (!authToken) {
+      console.error('GitHub token is missing. Please check your environment variables or provide a token explicitly.');
+      throw new Error('GitHub token is required for GitHubService initialization');
+    }
+    
     this.octokit = new Octokit({
       auth: authToken
     });
 
     if (defaultRepo) {
       this.defaultRepo = defaultRepo;
+      this.isInitialized = true;
     } else {
       let repoPath = config.github.repository || '';
+      if (!repoPath) {
+        console.error('GitHub repository path is missing. Please check your environment variables or provide a repository explicitly.');
+        throw new Error('GitHub repository path is required for GitHubService initialization');
+      }
+      
       repoPath = repoPath.replace(/\.git$/, '');
-      const [owner, repo] = repoPath.split('/');
+      const parts = repoPath.split('/');
+      
+      if (parts.length !== 2 || !parts[0] || !parts[1]) {
+        console.error(`Invalid repository format: ${repoPath}. Must be in the format 'owner/repo'`);
+        throw new Error('Invalid repository format. Must be in the format "owner/repo"');
+      }
+      
+      const [owner, repo] = parts;
       this.defaultRepo = { owner, repo };
+      this.isInitialized = true;
+    }
+  }
+
+  // Helper method to check if the service is initialized
+  private ensureInitialized() {
+    if (!this.isInitialized) {
+      throw new Error('GitHubService not properly initialized. Please check your GitHub configuration.');
     }
   }
 
   // Issues
   async createIssue(issue: GitHubIssue, repository?: GitHubRepository): Promise<any> {
+    this.ensureInitialized();
     const { owner, repo } = repository || this.defaultRepo;
     
     try {
@@ -51,6 +80,7 @@ export class GitHubService {
   }
 
   async getIssue(issueNumber: number, repository?: GitHubRepository): Promise<any> {
+    this.ensureInitialized();
     const { owner, repo } = repository || this.defaultRepo;
     
     try {
@@ -63,6 +93,28 @@ export class GitHubService {
       return response.data;
     } catch (error) {
       console.error(`Error getting issue #${issueNumber}:`, error);
+      throw error;
+    }
+  }
+
+  async listIssues(options?: { state?: string, per_page?: number }, repository?: GitHubRepository): Promise<any[]> {
+    this.ensureInitialized();
+    const { owner, repo } = repository || this.defaultRepo;
+    
+    const state = (options && options.state) || 'open';
+    const per_page = (options && options.per_page) || 10;
+    
+    try {
+      const response = await this.octokit.issues.listForRepo({
+        owner,
+        repo,
+        state: state as 'open' | 'closed' | 'all',
+        per_page
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error listing issues:', error);
       throw error;
     }
   }
@@ -309,6 +361,7 @@ This repository was automatically initialized by the SwarmWeaver system.
 
   // Repositories
   async getRepository(repository?: GitHubRepository): Promise<any> {
+    this.ensureInitialized();
     const { owner, repo } = repository || this.defaultRepo;
     
     try {

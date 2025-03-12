@@ -6,11 +6,13 @@ import { agents } from './agents/AgentDefinitions.js';
 import { githubFunctions } from './services/github/GitHubFunctions.js';
 import { config } from './config/config.js';
 import { isValidOpenAIKey, isValidGitHubToken, isValidSlackToken, maskToken } from './utils/SecurityUtils.js';
+import { GitHubService } from './services/github/GitHubService.js';
 
 // Check if required configuration is available
 function validateConfiguration() {
     const missingEnvVars = [];
     const invalidTokens = [];
+    const invalidConfigs = [];
     
     // Check for missing variables
     if (!config.openai.apiKey) missingEnvVars.push('OPENAI_API_KEY');
@@ -37,25 +39,50 @@ function validateConfiguration() {
     if (config.slack.botToken && !isValidSlackToken(config.slack.botToken, 'bot')) {
         invalidTokens.push('SLACK_BOT_TOKEN');
     }
-    if (config.slack.signingSecret && !isValidSlackToken(config.slack.signingSecret, 'signing')) {
-        invalidTokens.push('SLACK_SIGNING_SECRET');
-    }
-    if (config.slack.appToken && !isValidSlackToken(config.slack.appToken, 'app')) {
-        invalidTokens.push('SLACK_APP_TOKEN');
+    
+    // Validate GitHub repository format
+    if (config.github.repository) {
+        const repoRegex = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+        if (!repoRegex.test(config.github.repository)) {
+            invalidConfigs.push(`GITHUB_REPOSITORY (${config.github.repository}) - Must be in format 'owner/repo'`);
+        }
     }
     
     if (invalidTokens.length > 0) {
-        console.error('❌ Invalid token formats detected:');
+        console.error('❌ Invalid token formats:');
         invalidTokens.forEach(token => console.error(`  - ${token}`));
-        console.error('Please check these tokens in your .env file and ensure they follow the correct format.');
+        console.error('Please check the format of these tokens in your .env file.');
         process.exit(1);
     }
     
-    // Validate GitHub repository format
-    if (config.github.repository && !config.github.repository.includes('/')) {
-        console.error('❌ Invalid GitHub repository format:');
-        console.error('  Repository should be in the format "owner/repo"');
+    if (invalidConfigs.length > 0) {
+        console.error('❌ Invalid configuration values:');
+        invalidConfigs.forEach(config => console.error(`  - ${config}`));
+        console.error('Please correct these configuration values in your .env file.');
         process.exit(1);
+    }
+}
+
+// Verify GitHub repository access
+async function verifyGitHubAccess() {
+    console.log('🔍 Verifying GitHub repository access...');
+    try {
+        const githubService = new GitHubService();
+        await githubService.getRepository();
+        console.log(`✅ Successfully connected to GitHub repository: ${config.github.repository}`);
+        return true;
+    } catch (error) {
+        console.error(`❌ Failed to access GitHub repository: ${config.github.repository}`);
+        console.error(`Error: ${error.message}`);
+        
+        if (error.status === 404) {
+            console.error('The repository does not exist or you do not have access to it.');
+        } else if (error.status === 401 || error.status === 403) {
+            console.error('Invalid GitHub token or insufficient permissions.');
+        }
+        
+        console.error('Please check your GITHUB_TOKEN and GITHUB_REPOSITORY values in the .env file.');
+        return false;
     }
 }
 
@@ -83,6 +110,12 @@ async function startApplication() {
     try {
         // Log masked configuration
         logConfiguration();
+        
+        // Verify GitHub access
+        const githubAccessOk = await verifyGitHubAccess();
+        if (!githubAccessOk) {
+            console.warn('⚠️ Starting without verified GitHub access - some functionality may be limited');
+        }
         
         // Initialize services
         console.log('⚙️ Initializing services...');

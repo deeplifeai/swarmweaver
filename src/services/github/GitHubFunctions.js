@@ -36,7 +36,7 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
     }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.githubFunctionDefinitions = exports.githubFunctions = exports.getRepositoryInfoFunction = exports.createReviewFunction = exports.createCommitFunction = exports.createPullRequestFunction = exports.createIssueFunction = void 0;
+exports.githubFunctionDefinitions = exports.githubFunctions = exports.debugFunction = exports.listIssuesFunction = exports.getIssueFunction = exports.createBranchFunction = exports.getRepositoryInfoFunction = exports.createReviewFunction = exports.createCommitFunction = exports.createPullRequestFunction = exports.createIssueFunction = void 0;
 var GitHubService_1 = require("./GitHubService");
 // Initialize the GitHub service
 var githubService = new GitHubService_1.GitHubService();
@@ -305,23 +305,229 @@ exports.getRepositoryInfoFunction = {
         });
     }); }
 };
+// Create Branch Function
+exports.createBranchFunction = {
+    name: 'createBranch',
+    description: 'Creates a new branch in the GitHub repository',
+    parameters: {
+        name: { type: 'string', description: 'The name of the new branch' },
+        source: { type: 'string', description: 'Optional source branch to create from (defaults to main)' }
+    },
+    handler: function (params, agentId) { return __awaiter(void 0, void 0, void 0, function () {
+        var result, error_1;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    console.log("Agent ".concat(agentId, " is creating branch: ").concat(params.name));
+                    return [4 /*yield*/, githubService.createBranch(
+                        params.name,
+                        params.source || 'main'
+                    )];
+                case 1:
+                    result = _a.sent();
+                    return [2 /*return*/, {
+                            success: true,
+                            ref: result.ref,
+                            sha: result.object.sha,
+                            message: "Branch ".concat(params.name, " created successfully")
+                        }];
+                case 2:
+                    error_1 = _a.sent();
+                    console.error('Error creating branch:', error_1);
+                    return [2 /*return*/, {
+                            success: false,
+                            error: error_1.message
+                        }];
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); }
+};
+// Get Issue Function
+exports.getIssueFunction = {
+    name: 'getIssue',
+    description: 'Gets information about a specific GitHub issue by number',
+    parameters: {
+        number: { type: 'number', description: 'The issue number to retrieve' }
+    },
+    handler: function (params, agentId) { return __awaiter(void 0, void 0, void 0, function () {
+        var result, issuesList, validIssues, issueListStr, error_2;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 4]);
+                    console.log("Agent ".concat(agentId, " is retrieving issue #").concat(params.number));
+                    
+                    // Validate issue number
+                    if (!params.number || isNaN(params.number) || params.number < 1) {
+                        return [2 /*return*/, {
+                            success: false,
+                            error: "Invalid issue number: " + params.number + ". Issue numbers must be positive integers.",
+                            workflow_hint: "You must first call getRepositoryInfo() before getting issue details."
+                        }];
+                    }
+                    
+                    return [4 /*yield*/, githubService.getIssue(params.number)];
+                case 1:
+                    result = _a.sent();
+                    console.log("Successfully retrieved issue #".concat(params.number, ": ").concat(result.title));
+                    return [2 /*return*/, {
+                            success: true,
+                            number: result.number,
+                            title: result.title,
+                            body: result.body,
+                            html_url: result.html_url,
+                            state: result.state,
+                            assignees: result.assignees,
+                            labels: result.labels,
+                            workflow_hint: "Next step: Create a branch using createBranch({name: \"feature-issue-".concat(result.number, "\"})")
+                        }];
+                case 2:
+                    error_2 = _a.sent();
+                    console.error("Error getting issue #".concat(params.number, ":"), error_2);
+                    // Try to list available issues to help the agent
+                    return [4 /*yield*/, githubService.listIssues({ state: 'all', per_page: 5 })
+                        .then(function(issues) {
+                            validIssues = issues.map(function(issue) {
+                                return "#" + issue.number + ": " + issue.title;
+                            });
+                            issueListStr = validIssues.length > 0 
+                                ? "Available issues: " + validIssues.join(", ")
+                                : "No issues found in this repository.";
+                            return issueListStr;
+                        })
+                        .catch(function(err) {
+                            return "Unable to list available issues: " + err.message;
+                        })];
+                case 3:
+                    issuesList = _a.sent();
+                    return [2 /*return*/, {
+                            success: false,
+                            error: error_2.message,
+                            available_issues: issuesList,
+                            workflow_hint: "First make sure the issue exists. Try using listIssues() to see available issues. Remember to follow the exact workflow: 1) getRepositoryInfo, 2) getIssue, 3) createBranch, 4) createCommit, 5) createPullRequest"
+                        }];
+                case 4: return [2 /*return*/];
+            }
+        });
+    }); }
+};
+// List Issues Function
+exports.listIssuesFunction = {
+    name: 'listIssues',
+    description: 'Lists open issues in the GitHub repository',
+    parameters: {
+        state: { 
+            type: 'string', 
+            description: 'The state of issues to list: open, closed, or all', 
+            enum: ['open', 'closed', 'all'],
+            default: 'open'
+        },
+        limit: { 
+            type: 'number', 
+            description: 'Maximum number of issues to return', 
+            default: 10 
+        }
+    },
+    handler: function (params, agentId) { return __awaiter(void 0, void 0, void 0, function () {
+        var state, limit, result, issues, error_list;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    state = params.state || 'open';
+                    limit = params.limit || 10;
+                    console.log("Agent ".concat(agentId, " is listing ").concat(state, " issues (max: ").concat(limit, ")"));
+                    return [4 /*yield*/, githubService.listIssues({ 
+                        state: state,
+                        per_page: limit
+                    })];
+                case 1:
+                    result = _a.sent();
+                    issues = result.map(function (issue) { return ({
+                        number: issue.number,
+                        title: issue.title,
+                        state: issue.state,
+                        created_at: issue.created_at,
+                        html_url: issue.html_url
+                    }); });
+                    return [2 /*return*/, {
+                        success: true,
+                        total_count: issues.length,
+                        issues: issues,
+                        message: "Found ".concat(issues.length, " ").concat(state, " issues")
+                    }];
+                case 2:
+                    error_list = _a.sent();
+                    console.error("Error listing issues:", error_list);
+                    return [2 /*return*/, {
+                        success: false,
+                        error: error_list.message
+                    }];
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); }
+};
+// Debug function to help diagnose function call issues
+exports.debugFunction = {
+    name: 'debug',
+    description: 'Provides debugging information about the current workflow state',
+    parameters: {
+        message: { type: 'string', description: 'Optional debug message' }
+    },
+    handler: function (params, agentId) { return __awaiter(void 0, void 0, void 0, function () {
+        return __generator(this, function (_a) {
+            console.log("Debug function called by agent ".concat(agentId, ": ").concat(params.message || 'No message provided'));
+            
+            return [2 /*return*/, {
+                success: true,
+                message: params.message || 'Debug function called',
+                workflow_reminder: 'Remember to follow the exact workflow: 1) getRepositoryInfo, 2) getIssue, 3) createBranch, 4) createCommit, 5) createPullRequest',
+                timestamp: new Date().toISOString()
+            }];
+        });
+    }); }
+};
 // Export all GitHub functions
 exports.githubFunctions = [
     exports.createIssueFunction,
     exports.createPullRequestFunction,
     exports.createCommitFunction,
     exports.createReviewFunction,
-    exports.getRepositoryInfoFunction
+    exports.getRepositoryInfoFunction,
+    exports.createBranchFunction,
+    exports.getIssueFunction,
+    exports.listIssuesFunction
 ];
+// Add debug function to the exported functions
+exports.githubFunctions.push(exports.debugFunction);
+// Make sure all elements in the array are defined
+exports.githubFunctions = exports.githubFunctions.filter(function(func) {
+    return func !== undefined && func !== null;
+});
 // Export function definitions for OpenAI
-exports.githubFunctionDefinitions = exports.githubFunctions.map(function (func) { return ({
-    name: func.name,
-    description: func.description,
-    parameters: {
-        type: 'object',
-        properties: func.parameters,
-        required: Object.keys(func.parameters).filter(function (key) {
-            return !['draft', 'assignees', 'labels', 'branch', 'comments'].includes(key);
-        })
+exports.githubFunctionDefinitions = exports.githubFunctions.map(function (func) { 
+    // Make sure func is defined before accessing its properties
+    if (!func) {
+        console.error("Undefined function found in githubFunctions array");
+        return {
+            name: "undefined_function",
+            description: "Error: This function was undefined",
+            parameters: { type: 'object', properties: {} }
+        };
     }
-}); });
+    
+    return {
+        name: func.name,
+        description: func.description,
+        parameters: {
+            type: 'object',
+            properties: func.parameters || {},
+            required: func.parameters ? Object.keys(func.parameters).filter(function (key) {
+                return !['draft', 'assignees', 'labels', 'branch', 'comments', 'source', 'state', 'limit', 'message'].includes(key);
+            }) : []
+        }
+    };
+});

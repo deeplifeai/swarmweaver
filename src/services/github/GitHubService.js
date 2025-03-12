@@ -86,6 +86,36 @@ var GitHubService = /** @class */ (function () {
             });
         });
     };
+    GitHubService.prototype.listIssues = function (options, repository) {
+        return __awaiter(this, void 0, void 0, function () {
+            var _a, owner, repo, state, per_page, response, error_list;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
+                    case 0:
+                        _a = repository || this.defaultRepo, owner = _a.owner, repo = _a.repo;
+                        state = (options && options.state) || 'open';
+                        per_page = (options && options.per_page) || 10;
+                        _b.label = 1;
+                    case 1:
+                        _b.trys.push([1, 3, , 4]);
+                        return [4 /*yield*/, this.octokit.issues.listForRepo({
+                                owner: owner,
+                                repo: repo,
+                                state: state,
+                                per_page: per_page
+                            })];
+                    case 2:
+                        response = _b.sent();
+                        return [2 /*return*/, response.data];
+                    case 3:
+                        error_list = _b.sent();
+                        console.error('Error listing issues:', error_list);
+                        throw error_list;
+                    case 4: return [2 /*return*/];
+                }
+            });
+        });
+    };
     GitHubService.prototype.getIssue = function (issueNumber, repository) {
         return __awaiter(this, void 0, void 0, function () {
             var _a, owner, repo, response, error_2;
@@ -370,6 +400,72 @@ var GitHubService = /** @class */ (function () {
                         console.error("Error getting repository ".concat(owner, "/").concat(repo, ":"), error_7);
                         throw error_7;
                     case 4: return [2 /*return*/];
+                }
+            });
+        });
+    };
+    // Branches
+    GitHubService.prototype.createBranch = function (branchName, sourceBranch, repository) {
+        if (sourceBranch === void 0) { sourceBranch = 'main'; }
+        return __awaiter(this, void 0, void 0, function () {
+            var _a, owner, repo, sourceRef, sourceSha, response, error_branch;
+            return __generator(this, function (_b) {
+                switch (_b.label) {
+                    case 0:
+                        _a = repository || this.defaultRepo, owner = _a.owner, repo = _a.repo;
+                        _b.label = 1;
+                    case 1:
+                        _b.trys.push([1, 4, , 5]);
+                        console.log("Creating branch ".concat(branchName, " from ").concat(sourceBranch, " in ").concat(owner, "/").concat(repo));
+                        return [4 /*yield*/, this.octokit.git.getRef({
+                                owner: owner,
+                                repo: repo,
+                                ref: "heads/".concat(sourceBranch)
+                            })];
+                    case 2:
+                        sourceRef = _b.sent();
+                        sourceSha = sourceRef.data.object.sha;
+                        return [4 /*yield*/, this.octokit.git.createRef({
+                                owner: owner,
+                                repo: repo,
+                                ref: "refs/heads/".concat(branchName),
+                                sha: sourceSha
+                            })];
+                    case 3:
+                        response = _b.sent();
+                        console.log("Branch ".concat(branchName, " created successfully in ").concat(owner, "/").concat(repo));
+                        return [2 /*return*/, response.data];
+                    case 4:
+                        error_branch = _b.sent();
+                        // If the error is because the branch already exists, that's okay
+                        if (error_branch.message && error_branch.message.includes('already exists')) {
+                            console.log("Branch ".concat(branchName, " already exists in ").concat(owner, "/").concat(repo));
+                            // Return the existing branch
+                            return [2 /*return*/, this.octokit.git.getRef({
+                                owner: owner,
+                                repo: repo,
+                                ref: "heads/".concat(branchName)
+                            }).then(function (response) { return response.data; })];
+                        }
+                        // Try initializing the repository if it's empty
+                        else if (error_branch.message && (error_branch.message.includes('Git Repository is empty') || error_branch.message.includes('Not Found'))) {
+                            console.log("Repository ".concat(owner, "/").concat(repo, " might be empty. Attempting to initialize..."));
+                            return [2 /*return*/, this.initializeEmptyRepository(repository)
+                                .then(() => {
+                                    console.log("Repository initialized. Retrying branch creation.");
+                                    return this.createBranch(branchName, 'main', repository);
+                                })
+                                .catch(initError => {
+                                    console.error("Error initializing repository:", initError);
+                                    throw initError;
+                                })];
+                        }
+                        else {
+                            console.error("Error creating branch ".concat(branchName, " in ").concat(owner, "/").concat(repo, ":"), error_branch);
+                            throw error_branch;
+                        }
+                        return [3 /*break*/, 5];
+                    case 5: return [2 /*return*/];
                 }
             });
         });

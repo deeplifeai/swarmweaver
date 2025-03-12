@@ -205,7 +205,51 @@ var AgentOrchestrator = /** @class */ (function () {
                         if (functionCalls && functionCalls.length > 0) {
                             console.log(`Agent ${agent.name} called functions:`, functionCalls.map(fc => fc.name).join(', '));
                             functionResults = this.aiService.extractFunctionResults(functionCalls);
-                            fullResponse += '\n\n' + functionResults;
+                            
+                            // Add clear separator between agent response and function results
+                            const separator = "\n\n-------------------------------------------\n";
+                            
+                            // Add workflow progress indicators
+                            let workflowProgress = "";
+                            const workflowState = this.conversationStates[conversationId];
+                            
+                            if (workflowState && workflowState.currentPhase) {
+                                if (agent.role === Agent_1.AgentRole.DEVELOPER) {
+                                    workflowProgress = "\n\n📋 *Workflow Progress*:\n";
+                                    
+                                    if (workflowState.currentPhase === 'issue_retrieved') {
+                                        workflowProgress += "✅ Repository info obtained\n";
+                                        workflowProgress += "✅ Issue details retrieved\n";
+                                        workflowProgress += "⬜ Create branch\n";
+                                        workflowProgress += "⬜ Commit code changes\n";
+                                        workflowProgress += "⬜ Create pull request\n";
+                                    }
+                                    else if (workflowState.currentPhase === 'branch_created') {
+                                        workflowProgress += "✅ Repository info obtained\n";
+                                        workflowProgress += "✅ Issue details retrieved\n";
+                                        workflowProgress += "✅ Branch created\n";
+                                        workflowProgress += "⬜ Commit code changes\n";
+                                        workflowProgress += "⬜ Create pull request\n";
+                                    }
+                                    else if (workflowState.currentPhase === 'commit_created') {
+                                        workflowProgress += "✅ Repository info obtained\n";
+                                        workflowProgress += "✅ Issue details retrieved\n";
+                                        workflowProgress += "✅ Branch created\n";
+                                        workflowProgress += "✅ Code changes committed\n";
+                                        workflowProgress += "⬜ Create pull request\n";
+                                    }
+                                    else if (workflowState.currentPhase === 'pr_created') {
+                                        workflowProgress += "✅ Repository info obtained\n";
+                                        workflowProgress += "✅ Issue details retrieved\n";
+                                        workflowProgress += "✅ Branch created\n";
+                                        workflowProgress += "✅ Code changes committed\n";
+                                        workflowProgress += "✅ Pull request created\n";
+                                        workflowProgress += "\n🎉 *Workflow complete!* The implementation is ready for review.";
+                                    }
+                                }
+                            }
+                            
+                            fullResponse += separator + functionResults + workflowProgress;
                         } else {
                             console.log(`Agent ${agent.name} did not call any functions`);
                         }
@@ -283,18 +327,32 @@ var AgentOrchestrator = /** @class */ (function () {
         // Extract issue numbers and PR numbers from function calls
         if (functionCalls && functionCalls.length > 0) {
             functionCalls.forEach(call => {
-                if (call.name === 'createIssue' && call.result && call.result.issue_number) {
+                if (call.name === 'createIssue' && call.result && call.result.success && call.result.issue_number) {
                     state.issueNumber = call.result.issue_number;
                     state.currentPhase = 'issue_created';
                     state.taskDescription = call.arguments.title;
                     console.log(`Workflow state updated: Issue #${state.issueNumber} created`);
                 }
-                else if (call.name === 'createPullRequest' && call.result && call.result.pr_number) {
+                else if (call.name === 'getIssue' && call.result && call.result.success && call.result.number) {
+                    state.issueNumber = call.result.number;
+                    state.currentPhase = 'issue_retrieved';
+                    state.taskDescription = call.result.title;
+                    console.log(`Workflow state updated: Issue #${state.issueNumber} retrieved`);
+                }
+                else if (call.name === 'createBranch' && call.result && call.result.success) {
+                    state.currentPhase = 'branch_created';
+                    console.log(`Workflow state updated: Branch ${call.arguments.name} created`);
+                }
+                else if (call.name === 'createCommit' && call.result && call.result.success) {
+                    state.currentPhase = 'commit_created';
+                    console.log(`Workflow state updated: Commit created on branch ${call.arguments.branch}`);
+                }
+                else if (call.name === 'createPullRequest' && call.result && call.result.success && call.result.pr_number) {
                     state.prNumber = call.result.pr_number;
                     state.currentPhase = 'pr_created';
                     console.log(`Workflow state updated: PR #${state.prNumber} created`);
                 }
-                else if (call.name === 'createReview' && call.result) {
+                else if (call.name === 'createReview' && call.result && call.result.success) {
                     if (call.arguments.event === 'APPROVE') {
                         state.currentPhase = 'pr_approved';
                         console.log(`Workflow state updated: PR #${state.prNumber} approved`);

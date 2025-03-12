@@ -3,8 +3,36 @@ import { OpenAIFunctionDefinition } from '@/types/openai/OpenAITypes';
 import { AgentFunction } from '@/types/agents/Agent';
 import { config } from '@/config/config';
 
-// Initialize the GitHub service
-const githubService = new GitHubService();
+// Create a workflow state to track function calls
+const workflowState = {
+  repositoryInfo: null,
+  getRepositoryInfoCalled: false
+};
+
+// Initialize the GitHub service with proper error handling
+let githubService: GitHubService;
+
+try {
+  githubService = new GitHubService();
+} catch (error) {
+  console.error('Failed to initialize GitHubService:', error);
+  // Create a fallback service that will provide clear error messages
+  githubService = {
+    getRepository: async () => { 
+      throw new Error('GitHub service initialization failed. Please check your GitHub token and repository configuration.'); 
+    },
+    getIssue: async () => {
+      throw new Error('GitHub service initialization failed. You must first ensure your GitHub token and repository configuration are correct.');
+    },
+    createBranch: async () => {
+      throw new Error('GitHub service initialization failed. Please check your GitHub token and repository configuration.');
+    },
+    listIssues: async () => {
+      throw new Error('GitHub service initialization failed. Please check your GitHub token and repository configuration.');
+    },
+    // ... other methods with appropriate error messages
+  } as any;
+}
 
 // Create Issue Function
 export const createIssueFunction: AgentFunction = {
@@ -277,11 +305,16 @@ export const createReviewFunction: AgentFunction = {
 // Get Repository Info Function
 export const getRepositoryInfoFunction: AgentFunction = {
   name: 'getRepositoryInfo',
-  description: 'Gets information about the GitHub repository',
+  description: 'Gets information about the GitHub repository. This must be called first before accessing issues or creating branches.',
   parameters: {},
   handler: async (params, agentId) => {
     try {
+      console.log(`Agent ${agentId} is retrieving repository information`);
       const result = await githubService.getRepository();
+      
+      // Store repository info and mark this function as called
+      workflowState.repositoryInfo = result;
+      workflowState.getRepositoryInfoCalled = true;
       
       return {
         success: true,
@@ -296,13 +329,15 @@ export const getRepositoryInfoFunction: AgentFunction = {
           stars_count: result.stargazers_count,
           created_at: result.created_at,
           updated_at: result.updated_at
-        }
+        },
+        workflow_hint: "Now you can get issue details with getIssue({number: X}) or list issues with listIssues()"
       };
     } catch (error) {
       console.error('Error getting repository info:', error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        workflow_hint: "Please check your GitHub token and repository configuration in the .env file."
       };
     }
   }
@@ -311,7 +346,7 @@ export const getRepositoryInfoFunction: AgentFunction = {
 // Get Issue Function
 export const getIssueFunction: AgentFunction = {
   name: 'getIssue',
-  description: 'Gets information about a specific GitHub issue by number',
+  description: 'Gets information about a specific GitHub issue by number. Requires getRepositoryInfo to be called first.',
   parameters: {
     number: { type: 'number', description: 'The issue number to retrieve' }
   },
@@ -319,8 +354,27 @@ export const getIssueFunction: AgentFunction = {
     try {
       console.log(`Agent ${agentId} is retrieving issue #${params.number}`);
       
+      // Check if getRepositoryInfo was called first
+      if (!workflowState.getRepositoryInfoCalled) {
+        return {
+          success: false,
+          error: "Repository information not loaded",
+          workflow_hint: "You must first call getRepositoryInfo() before getting issue details."
+        };
+      }
+      
+      // Validate issue number
+      if (!params.number || isNaN(params.number) || params.number < 1) {
+        return {
+          success: false,
+          error: `Invalid issue number: ${params.number}. Issue numbers must be positive integers.`,
+          workflow_hint: "Check that you're providing a valid issue number."
+        };
+      }
+      
       const result = await githubService.getIssue(params.number);
       
+      console.log(`Successfully retrieved issue #${params.number}: ${result.title}`);
       return {
         success: true,
         number: result.number,
@@ -329,13 +383,44 @@ export const getIssueFunction: AgentFunction = {
         html_url: result.html_url,
         state: result.state,
         assignees: result.assignees,
-        labels: result.labels
+        labels: result.labels,
+        workflow_hint: `Next step: Create a branch using createBranch({name: "feature-issue-${result.number}"})`
       };
     } catch (error) {
       console.error(`Error getting issue #${params.number}:`, error);
+      
+      // Enhanced error handling with more specific guidance
+      let errorMessage = error.message;
+      let workflowHint = "First make sure the issue exists. Try using listIssues() to see available issues.";
+      
+      if (error.status === 404) {
+        errorMessage = `Issue #${params.number} not found in the repository.`;
+        workflowHint = "Check the issue number and make sure it exists in this repository. Use listIssues() to see available issues.";
+      } else if (error.status === 401 || error.status === 403) {
+        errorMessage = "Authentication error - Unable to access the repository.";
+        workflowHint = "Ensure your GitHub token has proper permissions to access this repository.";
+      } else if (error.message.includes("Not Found")) {
+        errorMessage = "Repository or issue not found.";
+        workflowHint = "Check that your repository exists and that you have access to it.";
+      }
+      
+      // Try to list available issues to help the agent
+      let issuesList;
+      try {
+        const issues = await githubService.listIssues({ state: 'all', per_page: 5 });
+        const validIssues = issues.map(issue => `#${issue.number}: ${issue.title}`);
+        issuesList = validIssues.length > 0 
+          ? "Available issues: " + validIssues.join(", ")
+          : "No issues found in this repository.";
+      } catch (listError) {
+        issuesList = "Unable to list available issues: " + listError.message;
+      }
+      
       return {
         success: false,
-        error: error.message
+        error: errorMessage,
+        available_issues: issuesList,
+        workflow_hint: workflowHint
       };
     }
   }
@@ -374,6 +459,71 @@ export const createBranchFunction: AgentFunction = {
   }
 };
 
+// List Issues Function
+export const listIssuesFunction: AgentFunction = {
+  name: 'listIssues',
+  description: 'Lists issues in the GitHub repository',
+  parameters: {
+    state: { 
+      type: 'string', 
+      enum: ['open', 'closed', 'all'],
+      description: 'Filter issues by state (open, closed, all)',
+      default: 'open'
+    }
+  },
+  handler: async (params, agentId) => {
+    try {
+      console.log(`Agent ${agentId} is listing issues with state: ${params.state || 'open'}`);
+      
+      const options = {
+        state: params.state || 'open',
+        per_page: 10
+      };
+      
+      const issues = await githubService.listIssues(options);
+      
+      return {
+        success: true,
+        total_count: issues.length,
+        issues: issues.map(issue => ({
+          number: issue.number,
+          title: issue.title,
+          state: issue.state,
+          html_url: issue.html_url
+        }))
+      };
+    } catch (error) {
+      console.error('Error listing issues:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+};
+
+// Debug function
+export const debugFunction: AgentFunction = {
+  name: 'debug',
+  description: 'Provides debugging information about the current workflow state',
+  parameters: {
+    message: { type: 'string', description: 'Optional debug message' }
+  },
+  handler: async (params, agentId) => {
+    console.log(`Debug function called by agent ${agentId}: ${params.message || 'No message provided'}`);
+    
+    return {
+      success: true,
+      message: params.message || 'Debug function called',
+      workflow_state: {
+        repositoryInfoLoaded: workflowState.getRepositoryInfoCalled
+      },
+      workflow_reminder: 'Remember to follow the exact workflow: 1) getRepositoryInfo, 2) getIssue or listIssues, 3) createBranch, 4) createCommit, 5) createPullRequest',
+      timestamp: new Date().toISOString()
+    };
+  }
+};
+
 // Export all GitHub functions
 export const githubFunctions: AgentFunction[] = [
   createIssueFunction,
@@ -382,8 +532,16 @@ export const githubFunctions: AgentFunction[] = [
   createReviewFunction,
   getRepositoryInfoFunction,
   createBranchFunction,
-  getIssueFunction
+  getIssueFunction,
+  listIssuesFunction,
+  debugFunction
 ];
+
+// Function to reset workflow state (for testing)
+export const resetWorkflowState = () => {
+  workflowState.repositoryInfo = null;
+  workflowState.getRepositoryInfoCalled = false;
+};
 
 // Export function definitions for OpenAI
 export const githubFunctionDefinitions: OpenAIFunctionDefinition[] = githubFunctions.map(func => ({

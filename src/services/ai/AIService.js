@@ -86,6 +86,20 @@ var AIService = /** @class */ (function () {
                                 }
                             }
                             
+                            // Add workflow phase information
+                            if (workflowState.currentPhase === 'issue_retrieved') {
+                                workflowContext += `\n- Issue details have been successfully retrieved`;
+                                workflowContext += `\n- Next steps: Create a branch, then commit code, then create a PR`;
+                            }
+                            else if (workflowState.currentPhase === 'branch_created') {
+                                workflowContext += `\n- A branch has been created for this task`;
+                                workflowContext += `\n- Next steps: Commit code changes, then create a PR`;
+                            }
+                            else if (workflowState.currentPhase === 'commit_created') {
+                                workflowContext += `\n- Code changes have been committed`;
+                                workflowContext += `\n- Next step: Create a PR to merge these changes`;
+                            }
+                            
                             if (workflowState.prNumber) {
                                 workflowContext += `\n- Pull request #${workflowState.prNumber} has been created`;
                                 
@@ -174,29 +188,87 @@ var AIService = /** @class */ (function () {
     AIService.prototype.extractFunctionResults = function (functionCalls) {
         return functionCalls
             .map(function (call) {
+                // Check for errors first to handle them consistently across all functions
+                if (call.result && !call.result.success) {
+                    // Format error messages in a user-friendly way
+                    var errorMessage = call.result.error || 'Unknown error';
+                    
+                    // Clean up error messages from GitHub API
+                    if (errorMessage.includes('https://docs.github.com')) {
+                        errorMessage = errorMessage.split(' - ')[0];
+                    }
+                    
+                    return "\u274C Function `".concat(call.name, "` failed: ").concat(errorMessage, "\n\n\u26A0\uFE0F Remember to follow the exact workflow steps: 1) getRepositoryInfo, 2) getIssue, 3) createBranch, 4) createCommit, 5) createPullRequest");
+                }
+                
                 // Format GitHub function results in a user-friendly way
                 if (call.name === 'createIssue' && call.result.success) {
                     return "\u2705 Created GitHub issue #".concat(call.result.issue_number, ": \"").concat(call.arguments.title, "\"\n\uD83D\uDCCE ").concat(call.result.url);
                 }
-                else if (call.name === 'createIssue' && !call.result.success) {
-                    return "\u274C Failed to create GitHub issue: ".concat(call.result.error);
+                else if (call.name === 'getIssue' && call.result.success) {
+                    return "\uD83D\uDCCB GitHub issue #".concat(call.result.number, ": \"").concat(call.result.title, "\"\n\n").concat(call.result.body, "\n\n\uD83D\uDCCE ").concat(call.result.html_url, "\n\n\u2139\uFE0F Next step: Create a branch using createBranch({name: \"feature-issue-").concat(call.result.number, "\"})");
+                }
+                else if (call.name === 'getIssue' && !call.result.success) {
+                    // Enhanced error handling for getIssue failures
+                    let errorMessage = "\u274C Failed to retrieve issue #".concat(call.arguments.number, ": ").concat(call.result.error);
+                    
+                    // Add available issues if provided
+                    if (call.result.available_issues) {
+                        errorMessage += "\n\n\uD83D\uDCC4 " + call.result.available_issues;
+                    }
+                    
+                    // Add workflow hint if available
+                    if (call.result.workflow_hint) {
+                        errorMessage += "\n\n\u2139\uFE0F " + call.result.workflow_hint;
+                    }
+                    
+                    return errorMessage;
+                }
+                else if (call.name === 'listIssues' && call.result.success) {
+                    let issuesOutput = "\uD83D\uDCC1 GitHub Issues (Total: ".concat(call.result.total_count, "):\n");
+                    
+                    if (call.result.issues && call.result.issues.length > 0) {
+                        call.result.issues.forEach(issue => {
+                            issuesOutput += "\n• #".concat(issue.number, ": ").concat(issue.title);
+                        });
+                        issuesOutput += "\n\n\u2139\uFE0F Now you can get details of a specific issue using getIssue({number: N})";
+                    } else {
+                        issuesOutput += "\nNo issues found in the repository.";
+                    }
+                    
+                    return issuesOutput;
                 }
                 else if (call.name === 'createPullRequest' && call.result.success) {
-                    return "\u2705 Created GitHub pull request #".concat(call.result.pr_number, ": \"").concat(call.arguments.title, "\"\n\uD83D\uDCCE ").concat(call.result.url);
+                    return "\u2705 Created GitHub pull request #".concat(call.result.pr_number, ": \"").concat(call.arguments.title, "\"\n\uD83D\uDCCE ").concat(call.result.url, "\n\n\uD83C\uDF89 Workflow complete! The implementation is ready for review.");
                 }
                 else if (call.name === 'createCommit' && call.result.success) {
-                    return "\u2705 Created GitHub commit ".concat(call.result.commit_sha.substring(0, 7), ": \"").concat(call.arguments.message, "\"");
+                    // Check if branch was automatically created during commit
+                    if (call.result.message && call.result.message.includes('Branch') && call.result.message.includes('was created')) {
+                        var branchName = call.arguments.branch || 'main';
+                        return "\uD83D\uDD04 Branch `".concat(branchName, "` was automatically created\n\u2705 Committed changes: \"").concat(call.arguments.message, "\"\n\n\u2139\uFE0F Next step: Create a pull request using createPullRequest()");
+                    }
+                    return "\u2705 Created GitHub commit ".concat(call.result.commit_sha.substring(0, 7), ": \"").concat(call.arguments.message, "\"\n\n\u2139\uFE0F Next step: Create a pull request using createPullRequest({title: \"...\", body: \"...\", head: \"").concat(call.arguments.branch, "\", base: \"main\"})");
+                }
+                else if (call.name === 'createBranch' && call.result.success) {
+                    return "\u2705 Created GitHub branch `".concat(call.arguments.name, "` from `").concat(call.arguments.source || 'main', "`\n\n\u2139\uFE0F Next step: Make code changes and commit them using createCommit({message: \"...\", files: [...], branch: \"").concat(call.arguments.name, "\"})");
                 }
                 else if (call.name === 'createReview' && call.result.success) {
                     return "\u2705 Created GitHub review on PR #".concat(call.arguments.pull_number, " with status: ").concat(call.arguments.event);
                 }
                 else if (call.name === 'getRepositoryInfo' && call.result.success) {
                     var repo = call.result.repository;
-                    return "\uD83D\uDCC1 GitHub repository info:\n\u2022 Name: ".concat(repo.full_name, "\n\u2022 Description: ").concat(repo.description || 'N/A', "\n\u2022 Default branch: ").concat(repo.default_branch, "\n\u2022 Open issues: ").concat(repo.open_issues_count, "\n\u2022 URL: ").concat(repo.url);
+                    return "\uD83D\uDCC1 GitHub repository info:\n\u2022 Name: ".concat(repo.full_name, "\n\u2022 Description: ").concat(repo.description || 'N/A', "\n\u2022 Default branch: ").concat(repo.default_branch, "\n\u2022 Open issues: ").concat(repo.open_issues_count, "\n\u2022 URL: ").concat(repo.url, "\n\n\u2139\uFE0F Next step: Get issue details using getIssue({number: <issue_number>})");
                 }
-                // Default format for other functions
+                else if (call.name === 'debug' && call.result.success) {
+                    return "\uD83D\uDCA1 Debug Info: ".concat(call.result.message, "\n\n\u2139\uFE0F Workflow Reminder: ").concat(call.result.workflow_reminder, "\n\uD83D\uDCC5 Timestamp: ").concat(call.result.timestamp);
+                }
+                // Success message for other functions
+                else if (call.result.success) {
+                    return "\u2705 Function `".concat(call.name, "` completed successfully");
+                }
+                // Default format - should rarely be used due to error and success handling above
                 else {
-                    return "Function ".concat(call.name, " was called and returned: ").concat(JSON.stringify(call.result, null, 2));
+                    return "Function `".concat(call.name, "` was called");
                 }
             })
             .join('\n\n');

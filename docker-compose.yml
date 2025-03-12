@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  swarmweaver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: swarmweaver
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=production
+      - PORT=3000 

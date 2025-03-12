@@ -30,3 +30,4 @@ setup_stuff.sh
 .env.local
 .env.development.local
 .env.test.local
+.qodo

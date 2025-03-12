@@ -6,6 +6,7 @@ import { AgentMessage } from '@/types/agents/Agent';
  */
 export enum EventType {
   AGENT_MESSAGE = 'agent_message',
+  AGENT_MESSAGE_RECEIVED = 'agent_message_received',
   SLACK_MESSAGE = 'slack_message',
   ERROR = 'error'
 }

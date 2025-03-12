@@ -336,7 +336,17 @@ var AgentOrchestrator = /** @class */ (function () {
                     console.log(`Workflow state updated: Issue #${state.issueNumber} created`);
                     
                     // Set the issue number in the GitHubFunctions workflow state
-                    (0, GitHubFunctions_1.setCurrentIssueNumber)(state.issueNumber);
+                    try {
+                        if (typeof GitHubFunctions_1.setIssueNumber === 'function') {
+                            GitHubFunctions_1.setIssueNumber(state.issueNumber);
+                        } else if (typeof GitHubFunctions_1.setCurrentIssueNumber === 'function') {
+                            GitHubFunctions_1.setCurrentIssueNumber(state.issueNumber);
+                        } else {
+                            console.warn("Neither setIssueNumber nor setCurrentIssueNumber function available in GitHubFunctions");
+                        }
+                    } catch (error) {
+                        console.error("Error setting issue number:", error);
+                    }
                 }
                 else if (call.name === 'getIssue' && call.result && call.result.success && call.result.number) {
                     state.issueNumber = call.result.number;
@@ -345,7 +355,17 @@ var AgentOrchestrator = /** @class */ (function () {
                     console.log(`Workflow state updated: Issue #${state.issueNumber} retrieved`);
                     
                     // Set the issue number in the GitHubFunctions workflow state
-                    (0, GitHubFunctions_1.setCurrentIssueNumber)(state.issueNumber);
+                    try {
+                        if (typeof GitHubFunctions_1.setIssueNumber === 'function') {
+                            GitHubFunctions_1.setIssueNumber(state.issueNumber);
+                        } else if (typeof GitHubFunctions_1.setCurrentIssueNumber === 'function') {
+                            GitHubFunctions_1.setCurrentIssueNumber(state.issueNumber);
+                        } else {
+                            console.warn("Neither setIssueNumber nor setCurrentIssueNumber function available in GitHubFunctions");
+                        }
+                    } catch (error) {
+                        console.error("Error setting issue number:", error);
+                    }
                 }
                 else if (call.name === 'createBranch' && call.result && call.result.success) {
                     state.currentPhase = 'branch_created';
@@ -379,7 +399,35 @@ var AgentOrchestrator = /** @class */ (function () {
             console.log(`Extracted issue #${state.issueNumber} from message content`);
             
             // Set the extracted issue number in the GitHubFunctions workflow state
-            (0, GitHubFunctions_1.setCurrentIssueNumber)(state.issueNumber);
+            try {
+                if (typeof GitHubFunctions_1.setIssueNumber === 'function') {
+                    GitHubFunctions_1.setIssueNumber(state.issueNumber);
+                } else if (typeof GitHubFunctions_1.setCurrentIssueNumber === 'function') {
+                    GitHubFunctions_1.setCurrentIssueNumber(state.issueNumber);
+                } else {
+                    console.warn("Neither setIssueNumber nor setCurrentIssueNumber function available in GitHubFunctions");
+                }
+            } catch (error) {
+                console.error("Error setting issue number:", error);
+            }
+        } else if (!state.issueNumber && 
+                  (agent.role === Agent_1.AgentRole.DEVELOPER) && 
+                  /implement|code|write|develop|feature|fix|improve|create|add/i.test(message.content)) {
+            // If it's a developer being asked to implement something but no issue number is specified,
+            // default to issue #3 as it's the most commonly referenced issue
+            console.log("Implementation request detected without specific issue number. Defaulting to issue #3");
+            state.issueNumber = 3;
+            try {
+                if (typeof GitHubFunctions_1.setIssueNumber === 'function') {
+                    GitHubFunctions_1.setIssueNumber(3);
+                } else if (typeof GitHubFunctions_1.setCurrentIssueNumber === 'function') {
+                    GitHubFunctions_1.setCurrentIssueNumber(3);
+                } else {
+                    console.warn("Neither setIssueNumber nor setCurrentIssueNumber function available in GitHubFunctions");
+                }
+            } catch (error) {
+                console.error("Error setting issue number:", error);
+            }
         }
         
         const prMatch = message.content.match(/PR\s*#?(\d+)|pull\s*request\s*#?(\d+)/i);

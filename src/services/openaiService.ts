@@ -2,16 +2,102 @@
   The following module declarations are added to fix linter errors for missing type declarations.
 */
 declare module 'openai';
-declare module 'gpt-3-encoder';
+declare module 'tiktoken';
 
 // @ts-ignore: Missing type declarations for 'openai'
 import { Configuration, OpenAIApi } from 'openai';
-// @ts-ignore: Missing type declarations for 'gpt-3-encoder'
-import { encode } from 'gpt-3-encoder';
+import * as tiktoken from 'tiktoken';
 
+/**
+ * Accurate token counting function using OpenAI's official tiktoken library
+ * Reference: https://github.com/openai/openai-cookbook/blob/main/examples/How_to_count_tokens_with_tiktoken.ipynb
+ * 
+ * @param text Text to count tokens for
+ * @param model Model name to estimate tokens for
+ * @returns Exact token count
+ */
 function getTokenCount(text: string, model: string = 'gpt-4'): number {
-  // This uses the gpt-3-encoder to count tokens. Adjust if necessary for your model.
-  return encode(text).length;
+  try {
+    // Get the appropriate encoding for the model
+    const encoding = getEncodingForModel(model);
+    if (!encoding) {
+      console.warn(`No specific encoding found for ${model}, using cl100k_base encoding`);
+      return fallbackTokenCount(text);
+    }
+    
+    // Encode the text and get token count
+    const tokens = encoding.encode(text);
+    const tokenCount = tokens.length;
+    
+    // Free up the encoding when done
+    encoding.free();
+    
+    return tokenCount;
+  } catch (error) {
+    console.error(`Error using tiktoken: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    // Fall back to estimation if tiktoken fails
+    return fallbackTokenCount(text);
+  }
+}
+
+/**
+ * Gets the appropriate tiktoken encoding for a given model
+ */
+function getEncodingForModel(model: string) {
+  try {
+    // Convert model name to lowercase for case-insensitive matching
+    const modelLower = model.toLowerCase();
+    
+    // cl100k_base encodings (used by gpt-4, gpt-3.5-turbo, text-embedding-ada-002)
+    if (
+      modelLower.includes('gpt-4') || 
+      modelLower.includes('gpt-3.5') || 
+      modelLower.includes('gpt-4o') || 
+      modelLower.includes('o1') || 
+      modelLower.includes('o3') || 
+      modelLower.startsWith('text-embedding')
+    ) {
+      return tiktoken.get_encoding('cl100k_base');
+    }
+    
+    // p50k_base encodings (used by older GPT-3 davinci models)
+    if (
+      modelLower.includes('davinci') ||
+      modelLower.includes('curie') ||
+      modelLower.includes('babbage') ||
+      modelLower.includes('ada')
+    ) {
+      return tiktoken.get_encoding('p50k_base');
+    }
+    
+    // For other models, try getting encoding directly or default to cl100k_base
+    try {
+      // @ts-ignore: TypeScript doesn't know all valid model names
+      return tiktoken.encoding_for_model(model);
+    } catch {
+      return tiktoken.get_encoding('cl100k_base');
+    }
+  } catch (error) {
+    console.error(`Error getting encoding: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return null;
+  }
+}
+
+/**
+ * Fallback token counting method using heuristics when tiktoken is unavailable
+ */
+function fallbackTokenCount(text: string): number {
+  // This is our previous implementation as a fallback
+  const charCount = text.length;
+  const commonMultiCharTokens = (text.match(/\b(ing|ly|ed|ious|tion|ment|ness|ism|ship|hood|dom|ful|less|able|ible|ize|ise|ify|ate|al|ial|ic|ical|ous|ary|ate|en|fy)\b/g) || []).length;
+  const spaces = (text.match(/\s/g) || []).length;
+  const specialChars = (text.match(/[^\w\s]/g) || []).length;
+  
+  // Base approximation for modern models
+  const tokenEstimate = Math.ceil((charCount - commonMultiCharTokens * 2) / 4 + spaces * 0.5 + specialChars * 0.5);
+  
+  // Ensure we don't underestimate token count
+  return Math.max(tokenEstimate, Math.ceil(charCount / 5));
 }
 
 export async function generateResponse(

@@ -5,7 +5,7 @@ import { SlackService } from '@/services/slack/SlackService';
 import { AIService } from '@/services/ai/AIService';
 import { config } from '@/config/config';
 import { eventBus, EventType } from '@/utils/EventBus';
-import { setCurrentIssueNumber } from '../github/GitHubFunctions';
+import { setCurrentIssueNumber, setIssueNumber } from '../github/GitHubFunctions';
 
 export class AgentOrchestrator {
   private slackService: SlackService;
@@ -157,13 +157,46 @@ export class AgentOrchestrator {
   }
   
   // Extract issue numbers from a message
-  private extractIssueNumbers(text: string): number[] {
-    const issueRegex = /\bissue\s*#?(\d+)\b|\b#(\d+)\b/gi;
-    const matches = Array.from(text.matchAll(issueRegex));
+  private extractIssueNumbers(content: string): number[] {
+    const matches = content.match(/#(\d+)/g) || [];
+    return matches.map(match => parseInt(match.substring(1)));
+  }
+
+  // Determine which agent should handle a message based on content
+  private determineAgentFromContent(content: string): Agent | null {
+    console.log('Determining agent from content:', content);
     
-    return matches
-      .map(match => parseInt(match[1] || match[2], 10))
-      .filter(num => !isNaN(num));
+    // 1. Check for explicit role references like "As the PROJECT_MANAGER" or "PROJECT_MANAGER,"
+    const rolePrefixes = [
+      { pattern: /\b(PROJECT[_\s]MANAGER|DEVELOPER|CODE[_\s]REVIEWER|QA[_\s]TESTER|TECHNICAL[_\s]WRITER)\b/i, group: 1 },
+      { pattern: /As the (PROJECT[_\s]MANAGER|DEVELOPER|CODE[_\s]REVIEWER|QA[_\s]TESTER|TECHNICAL[_\s]WRITER)/i, group: 1 },
+      { pattern: /(PROJECT[_\s]MANAGER|DEVELOPER|CODE[_\s]REVIEWER|QA[_\s]TESTER|TECHNICAL[_\s]WRITER),/i, group: 1 },
+      { pattern: /@(PROJECT[_\s]MANAGER|DEVELOPER|CODE[_\s]REVIEWER|QA[_\s]TESTER|TECHNICAL[_\s]WRITER)/i, group: 1 },
+    ];
+
+    for (const { pattern, group } of rolePrefixes) {
+      const match = content.match(pattern);
+      if (match) {
+        const roleName = match[group].replace(/\s/g, '_').toUpperCase();
+        console.log(`Found explicit role mention: ${roleName}`);
+        
+        // Find an agent with this role
+        const agentEntries = Object.entries(this.agents);
+        for (const [id, agent] of agentEntries) {
+          if (agent.role === roleName) {
+            return agent;
+          }
+        }
+      }
+    }
+
+    // 2. Default to first agent as fallback if no specific role is detected
+    const agentEntries = Object.entries(this.agents);
+    if (agentEntries.length > 0) {
+      return agentEntries[0][1];
+    }
+    
+    return null;
   }
 
   private async handleAgentMessage(message: AgentMessage) {
@@ -197,7 +230,7 @@ export class AgentOrchestrator {
     }
     
     // If we can't determine which agent to use, pick the first one mentioned
-    const firstMentionedAgent = this.agents.find(a => a.id === message.mentions[0]);
+    const firstMentionedAgent = this.agents[message.mentions[0]];
     if (firstMentionedAgent) {
       return this.processAgentRequest(firstMentionedAgent, message);
     }

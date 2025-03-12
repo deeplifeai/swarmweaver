@@ -55,7 +55,7 @@ export class AIService {
       // Call the OpenAI API
       const response = await this.openai.chat.completions.create({
         model: config.openai.model,
-        messages,
+        messages: messages as any,
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: tools.length > 0 ? 'auto' : undefined
       });

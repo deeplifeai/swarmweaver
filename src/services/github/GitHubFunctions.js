@@ -531,3 +531,36 @@ exports.githubFunctionDefinitions = exports.githubFunctions.map(function (func) 
         }
     };
 });
+
+// Define the workflow state at the top of the file
+var workflowState = {
+  repositoryInfo: null,
+  getRepositoryInfoCalled: false,
+  currentIssueNumber: null,
+  currentBranch: null,
+  autoProgressWorkflow: true
+};
+
+// Define these functions before they're used in exports
+function resetWorkflowState() {
+  workflowState.repositoryInfo = null;
+  workflowState.getRepositoryInfoCalled = false;
+  workflowState.currentIssueNumber = null;
+  workflowState.currentBranch = null;
+  workflowState.autoProgressWorkflow = true;
+}
+
+function setCurrentIssueNumber(issueNumber) {
+  console.log('Setting current issue number to:', issueNumber);
+  workflowState.currentIssueNumber = issueNumber;
+}
+
+function setIssueNumber(issueNumber) {
+  console.log('Setting issue number via setIssueNumber to:', issueNumber);
+  workflowState.currentIssueNumber = issueNumber;
+}
+
+// PATCHED EXPORTS - Added for CommonJS compatibility
+exports.setCurrentIssueNumber = setCurrentIssueNumber;
+exports.setIssueNumber = setIssueNumber;
+exports.resetWorkflowState = resetWorkflowState;

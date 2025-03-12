@@ -6,11 +6,14 @@
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "build:server": "node build.js",
+    "build:all": "npm run build && npm run build:server",
+    "patch": "node patch-exports.js",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "jest",
     "test:watch": "jest --watch",
-    "start": "node server.js",
+    "start": "npm run build:server && node server.js",
     "start:simple": "node simple_bot.js"
   },
   "dependencies": {
@@ -70,6 +73,7 @@
     "sonner": "^1.5.0",
     "tailwind-merge": "^2.5.2",
     "tailwindcss-animate": "^1.0.7",
+    "tiktoken": "^1.0.20",
     "ts-node": "^10.9.2",
     "vaul": "^0.9.3",
     "zod": "^3.23.8",

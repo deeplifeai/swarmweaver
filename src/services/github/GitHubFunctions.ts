@@ -99,8 +99,16 @@ export const createIssueFunction: AgentFunction = {
   parameters: {
     title: { type: 'string', description: 'The title of the issue' },
     body: { type: 'string', description: 'The detailed description of the issue' },
-    assignees: { type: 'array', description: 'Optional list of agents to mention in the issue body (will not be set as GitHub assignees)' },
-    labels: { type: 'array', description: 'Optional list of labels to apply to the issue' }
+    assignees: { 
+      type: 'array', 
+      items: { type: 'string' },
+      description: 'Optional list of agents to mention in the issue body (will not be set as GitHub assignees)' 
+    },
+    labels: { 
+      type: 'array', 
+      items: { type: 'string' },
+      description: 'Optional list of labels to apply to the issue' 
+    }
   },
   handler: async (params, agentId) => {
     try {
@@ -148,7 +156,11 @@ export const createPullRequestFunction: AgentFunction = {
     head: { type: 'string', description: 'The name of the branch where your changes are implemented' },
     base: { type: 'string', description: 'The name of the branch you want the changes pulled into' },
     draft: { type: 'boolean', description: 'Optional flag to indicate if the pull request is a draft' },
-    assignees: { type: 'array', description: 'Optional list of agents to mention in the PR body (will not be set as GitHub assignees)' }
+    assignees: { 
+      type: 'array', 
+      items: { type: 'string' },
+      description: 'Optional list of agents to mention in the PR body (will not be set as GitHub assignees)' 
+    }
   },
   handler: async (params, agentId) => {
     try {
@@ -240,6 +252,14 @@ export const createCommitFunction: AgentFunction = {
     message: { type: 'string', description: 'The commit message' },
     files: { 
       type: 'array', 
+      items: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          content: { type: 'string' }
+        },
+        required: ['path', 'content']
+      },
       description: 'Array of file objects with path and content properties to be committed'
     },
     branch: { type: 'string', description: 'Optional branch name to commit to (defaults to main)' }
@@ -340,7 +360,16 @@ export const createReviewFunction: AgentFunction = {
       enum: ['APPROVE', 'REQUEST_CHANGES', 'COMMENT']
     },
     comments: { 
-      type: 'array', 
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          position: { type: 'number' },
+          body: { type: 'string' }
+        },
+        required: ['body']
+      },
       description: 'Optional array of comments to make on the pull request' 
     }
   },

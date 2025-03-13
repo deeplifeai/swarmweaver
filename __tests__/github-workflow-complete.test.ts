@@ -1,3 +1,6 @@
+// Set NODE_ENV to test for consistent mocking
+process.env.NODE_ENV = 'test';
+
 import { jest } from '@jest/globals';
 
 // Create mock for developer agent
@@ -22,6 +25,13 @@ interface AIResponse {
   functionCall?: any;
   functionCalls?: any[];
 }
+
+// Create mocks using the same pattern as in github-functions.test.ts
+const mockSendMessage = jest.fn() as jest.Mock<any>;
+const mockGenerateAgentResponse = jest.fn() as jest.Mock<any>;
+const mockExtractFunctionResults = jest.fn() as jest.Mock<any>;
+const mockRegisterAgent = jest.fn() as jest.Mock<any>;
+const mockHandleMessage = jest.fn() as jest.Mock<any>;
 
 // Mock all the external dependencies
 // Note: Using relative paths instead of aliases to avoid path resolution issues
@@ -52,82 +62,92 @@ jest.spyOn(console, 'log').mockImplementation(() => {});
 jest.spyOn(console, 'error').mockImplementation(() => {});
 
 describe('Complete GitHub Workflow Tests', () => {
-  // Mock service functions with proper typings
+  // Create service objects with mocked functions
   let mockSlackService: { sendMessage: jest.Mock };
-  let mockAIService: { 
-    generateAgentResponse: jest.Mock<Promise<AIResponse>, any[]>,
-    extractFunctionResults: jest.Mock 
-  };
-  let orchestrator: { 
-    handleMessage: jest.Mock<Promise<any>, [Message]>,
-    registerAgent: jest.Mock 
-  };
+  let mockAIService: { generateAgentResponse: jest.Mock; extractFunctionResults: jest.Mock };
+  let orchestrator: { handleMessage: jest.Mock; registerAgent: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Create typed mock services
+    // Create typed mock services with simple type declarations
     mockSlackService = {
-      sendMessage: jest.fn().mockResolvedValue({} as any)
+      sendMessage: mockSendMessage
     };
     
     mockAIService = {
-      generateAgentResponse: jest.fn<Promise<AIResponse>, any[]>().mockResolvedValue({
-        response: 'I will create a branch for issue #42',
-        functionCall: {
-          name: 'createBranch',
-          parameters: { issueNumber: 42 }
-        }
-      }),
-      extractFunctionResults: jest.fn().mockReturnValue('Function results')
+      generateAgentResponse: mockGenerateAgentResponse,
+      extractFunctionResults: mockExtractFunctionResults
     };
 
     // Set up the orchestrator with our mocks
     orchestrator = {
-      registerAgent: jest.fn(),
-      handleMessage: jest.fn<Promise<any>, [Message]>().mockImplementation(async (message: Message) => {
-        // Get the response from the appropriate mock based on the message
-        let responseText = 'Default response';
-
-        if (message.content.includes('create a new issue')) {
-          await githubService.createIssue({ title: 'Add login functionality', body: 'Implement user login/authentication system' });
-        } else if (message.content.includes('add a comment to issue')) {
-          await githubService.getIssue(42);
-          await githubService.addCommentToIssue(42, 'We should use JWT for authentication');
-        } else if (message.content.includes('create a branch')) {
-          await githubService.branchExists('feature/login-42');
-          await githubService.createBranch('feature/login-42', 'main');
-        } else if (message.content.includes('commit login functionality')) {
-          await githubService.createCommit({ message: 'Add login functionality', files: [], branch: 'feature/login-42' });
-        } else if (message.content.includes('create a PR')) {
-          await githubService.createPullRequest({ title: 'Add login functionality', body: 'Fixes #42', head: 'feature/login-42', base: 'main' });
-        } else if (message.content.includes('review and approve PR')) {
-          await githubService.getPullRequest(123);
-          await githubService.addReviewToPullRequest(123, { event: 'APPROVE', body: 'Looks good' });
-        } else if (message.content.includes('merge PR')) {
-          await githubService.mergePullRequest(123);
-        } else if (message.content.includes('close issue')) {
-          await githubService.closeIssue(42);
-        }
-        
-        // For simplicity, let's use a fixed response text based on the mock AI service
-        const mockResult = mockAIService.generateAgentResponse.mock.results[0];
-        if (mockResult && mockResult.value) {
-          const aiResponse = await mockResult.value;
-          responseText = aiResponse.response;
-        }
-        
-        // Return a mock response with the appropriate text
-        return mockSlackService.sendMessage({
-          channel: message.channel,
-          text: responseText,
-          thread_ts: message.replyToMessageId
-        });
-      })
+      registerAgent: mockRegisterAgent,
+      handleMessage: mockHandleMessage
     };
     
+    // Set up default mock implementations
+    mockSendMessage.mockResolvedValue({});
+    
+    mockGenerateAgentResponse.mockResolvedValue({
+      response: 'I will create a branch for issue #42',
+      functionCall: {
+        name: 'createBranch',
+        parameters: { issueNumber: 42 }
+      }
+    });
+    
+    mockExtractFunctionResults.mockReturnValue('Function results');
+    
+    mockHandleMessage.mockImplementation(async (message: Message) => {
+      // Get the response from the appropriate mock based on the message
+      let responseText = 'Default response';
+
+      if (message.content.includes('create a new issue')) {
+        await githubService.createIssue({ title: 'Add login functionality', body: 'Implement user login/authentication system' });
+      } else if (message.content.includes('add a comment to issue')) {
+        await githubService.getIssue(42);
+        await githubService.addCommentToIssue(42, 'We should use JWT for authentication');
+      } else if (message.content.includes('create a branch')) {
+        // Check if branch exists before creating
+        const branchExists = await githubService.branchExists('feature/login-42');
+        if (!branchExists) {
+          await githubService.createBranch('feature/login-42', 'main');
+        }
+      } else if (message.content.includes('commit login functionality')) {
+        await githubService.createCommit({ message: 'Add login functionality', files: [], branch: 'feature/login-42' });
+      } else if (message.content.includes('create a PR')) {
+        await githubService.createPullRequest({ title: 'Add login functionality', body: 'Fixes #42', head: 'feature/login-42', base: 'main' });
+      } else if (message.content.includes('review and approve PR')) {
+        await githubService.getPullRequest(123);
+        await githubService.addReviewToPullRequest(123, { event: 'APPROVE', body: 'Looks good' });
+      } else if (message.content.includes('merge PR')) {
+        await githubService.mergePullRequest(123);
+      } else if (message.content.includes('close issue')) {
+        await githubService.closeIssue(42);
+      }
+      
+      // For simplicity, let's use a fixed response text based on the mock AI service
+      const mockResult = mockGenerateAgentResponse.mock.results[0];
+      if (mockResult && mockResult.value) {
+        try {
+          const aiResponse = await mockResult.value;
+          responseText = aiResponse.response;
+        } catch (error) {
+          responseText = 'Error processing AI response';
+        }
+      }
+      
+      // Return a mock response with the appropriate text
+      return mockSendMessage({
+        channel: message.channel,
+        text: responseText,
+        thread_ts: message.replyToMessageId
+      });
+    });
+    
     // Register the developer agent
-    orchestrator.registerAgent(mockDeveloperAgent);
+    mockRegisterAgent.mockImplementation((agent) => agent);
 
     // Mock GitHub service functions with typed implementation
     (githubService.getRepository as jest.Mock).mockImplementation(() => Promise.resolve({
@@ -238,7 +258,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for issue creation
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will create a new issue for adding login functionality',
       functionCalls: [
         {
@@ -268,7 +288,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for issue creation
     await orchestrator.handleMessage(createIssueMessage);
@@ -282,7 +302,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for commenting
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will add a comment about JWT authentication to issue #42',
       functionCalls: [
         {
@@ -309,7 +329,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for issue commenting
     await orchestrator.handleMessage(commentIssueMessage);
@@ -323,7 +343,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for branch creation
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will create a branch for issue #42',
       functionCalls: [
         {
@@ -356,7 +376,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for branch creation
     await orchestrator.handleMessage(createBranchMessage);
@@ -370,7 +390,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for commit creation
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will commit login functionality code to the branch for issue #42',
       functionCalls: [
         {
@@ -392,7 +412,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for commit creation
     await orchestrator.handleMessage(createCommitMessage);
@@ -406,7 +426,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for PR creation
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will create a PR for the login functionality branch',
       functionCalls: [
         {
@@ -426,7 +446,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for PR creation
     await orchestrator.handleMessage(createPRMessage);
@@ -440,7 +460,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for PR review
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will review and approve PR #123',
       functionCalls: [
         {
@@ -468,7 +488,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for PR review
     await orchestrator.handleMessage(reviewPRMessage);
@@ -482,7 +502,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for PR merge
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will merge PR #123',
       functionCalls: [
         {
@@ -495,7 +515,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for PR merge
     await orchestrator.handleMessage(mergePRMessage);
@@ -509,7 +529,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Mock AI response for issue closing
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will close issue #42',
       functionCalls: [
         {
@@ -522,7 +542,7 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler for issue closing
     await orchestrator.handleMessage(closeIssueMessage);
@@ -541,10 +561,13 @@ describe('Complete GitHub Workflow Tests', () => {
     expect(githubService.closeIssue).toHaveBeenCalled();
 
     // Verify the success messages were sent to Slack
-    expect(mockSlackService.sendMessage).toHaveBeenCalledTimes(8);
+    expect(mockSendMessage).toHaveBeenCalledTimes(8);
   });
 
   it('should handle errors properly in the workflow', async () => {
+    // Reset mocks for this specific test
+    jest.clearAllMocks();
+    
     // Test with a failed branch creation
     const createBranchMessage: Message = {
       channel: 'C123',
@@ -557,7 +580,7 @@ describe('Complete GitHub Workflow Tests', () => {
     (githubService.branchExists as jest.Mock).mockImplementation(() => Promise.resolve(true));
 
     // Mock AI response for branch creation with error
-    mockAIService.generateAgentResponse.mockResolvedValueOnce({
+    mockGenerateAgentResponse.mockResolvedValueOnce({
       response: 'I will create a branch for issue #42',
       functionCalls: [
         {
@@ -582,13 +605,13 @@ describe('Complete GitHub Workflow Tests', () => {
           }
         }
       ]
-    } as AIResponse);
+    });
 
     // Invoke the handler
     await orchestrator.handleMessage(createBranchMessage);
 
     // Verify the error message was sent to Slack
-    expect(mockSlackService.sendMessage).toHaveBeenCalledWith({
+    expect(mockSendMessage).toHaveBeenCalledWith({
       channel: 'C123',
       text: expect.any(String),
       thread_ts: 'T123'

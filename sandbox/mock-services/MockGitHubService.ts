@@ -92,7 +92,7 @@ export class MockGitHubService {
       number: issueNumber,
       title: issue.title,
       body: issue.body,
-      assignees: issue.assignees || [],
+      assignees: [], // Empty array as we don't use GitHub assignees for agents
       labels: issue.labels || [],
       state: 'open',
       html_url: this.generateIssueUrl(issueNumber),

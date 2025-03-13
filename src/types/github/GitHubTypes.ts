@@ -1,7 +1,7 @@
 export interface GitHubIssue {
   title: string;
   body: string;
-  assignees?: string[];
+  assignees?: string[]; // Optional - used only for tracking in the system, not passed to GitHub API
   labels?: string[];
   milestone?: number;
 }

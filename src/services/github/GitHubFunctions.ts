@@ -99,28 +99,26 @@ export const createIssueFunction: AgentFunction = {
   parameters: {
     title: { type: 'string', description: 'The title of the issue' },
     body: { type: 'string', description: 'The detailed description of the issue' },
-    assignees: { type: 'array', description: 'Optional list of GitHub usernames to assign to the issue' },
+    assignees: { type: 'array', description: 'Optional list of agents to mention in the issue body (will not be set as GitHub assignees)' },
     labels: { type: 'array', description: 'Optional list of labels to apply to the issue' }
   },
   handler: async (params, agentId) => {
     try {
-      // Filter out agent role names from assignees that might not be valid GitHub usernames
-      // This includes common role names used within SwarmWeaver
-      let assignees = params.assignees;
-      const agentRoleNames = ['Developer', 'ProjectManager', 'CodeReviewer', 'QATester', 'TechnicalWriter'];
+      // If assignees are provided, add them to the body instead of setting them in GitHub
+      let bodyWithAssignees = params.body;
       
-      // If all assignees are agent role names, set to undefined to avoid GitHub API validation errors
-      if (assignees && assignees.length > 0) {
-        const validAssignees = assignees.filter(name => !agentRoleNames.includes(name));
-        
-        // If we've filtered out all assignees, set to undefined
-        assignees = validAssignees.length > 0 ? validAssignees : undefined;
+      if (params.assignees && params.assignees.length > 0) {
+        // Add a section at the end of the body mentioning assigned agents
+        bodyWithAssignees += `\n\n## Assigned Agents\n`;
+        params.assignees.forEach(agent => {
+          bodyWithAssignees += `- ${agent}\n`;
+        });
       }
       
       const result = await githubService.createIssue({
         title: params.title,
-        body: params.body,
-        assignees: assignees,
+        body: bodyWithAssignees,
+        // Do not pass assignees to GitHub API
         labels: params.labels
       });
       
@@ -149,7 +147,8 @@ export const createPullRequestFunction: AgentFunction = {
     body: { type: 'string', description: 'The detailed description of the pull request' },
     head: { type: 'string', description: 'The name of the branch where your changes are implemented' },
     base: { type: 'string', description: 'The name of the branch you want the changes pulled into' },
-    draft: { type: 'boolean', description: 'Optional flag to indicate if the pull request is a draft' }
+    draft: { type: 'boolean', description: 'Optional flag to indicate if the pull request is a draft' },
+    assignees: { type: 'array', description: 'Optional list of agents to mention in the PR body (will not be set as GitHub assignees)' }
   },
   handler: async (params, agentId) => {
     try {
@@ -186,10 +185,21 @@ You MUST follow this exact workflow:
         }
       }
       
+      // If assignees are provided, add them to the PR body
+      let bodyWithAssignees = params.body;
+      
+      if (params.assignees && params.assignees.length > 0) {
+        // Add a section at the end of the body mentioning assigned agents
+        bodyWithAssignees += `\n\n## Assigned Agents\n`;
+        params.assignees.forEach(agent => {
+          bodyWithAssignees += `- ${agent}\n`;
+        });
+      }
+      
       // If we made it here, the branch exists, so create the PR
       const result = await githubService.createPullRequest({
         title: params.title,
-        body: params.body,
+        body: bodyWithAssignees,
         head: params.head,
         base: params.base || 'main',
         draft: params.draft

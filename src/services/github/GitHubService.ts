@@ -67,7 +67,6 @@ export class GitHubService {
         repo,
         title: issue.title,
         body: issue.body,
-        assignees: issue.assignees,
         labels: issue.labels,
         milestone: issue.milestone
       });

@@ -376,4 +376,88 @@ This repository was automatically initialized by the SwarmWeaver system.
       throw error;
     }
   }
-} 
+
+  // Issue comments
+  async addCommentToIssue(issueNumber: number, comment: string, repository?: GitHubRepository): Promise<any> {
+    this.ensureInitialized();
+    const { owner, repo } = repository || this.defaultRepo;
+    
+    try {
+      const response = await this.octokit.issues.createComment({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        body: comment
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error(`Error adding comment to issue #${issueNumber}:`, error);
+      throw error;
+    }
+  }
+
+  // Pull request reviews
+  async addReviewToPullRequest(pullNumber: number, review: { body: string; event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT' }, repository?: GitHubRepository): Promise<any> {
+    this.ensureInitialized();
+    const { owner, repo } = repository || this.defaultRepo;
+    
+    try {
+      const response = await this.octokit.pulls.createReview({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        body: review.body,
+        event: review.event
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error(`Error adding review to PR #${pullNumber}:`, error);
+      throw error;
+    }
+  }
+
+  // Merge pull request
+  async mergePullRequest(pullNumber: number, commitMessage?: string, repository?: GitHubRepository): Promise<any> {
+    this.ensureInitialized();
+    const { owner, repo } = repository || this.defaultRepo;
+    
+    try {
+      const response = await this.octokit.pulls.merge({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        commit_message: commitMessage
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error(`Error merging PR #${pullNumber}:`, error);
+      throw error;
+    }
+  }
+
+  // Close issue
+  async closeIssue(issueNumber: number, repository?: GitHubRepository): Promise<any> {
+    this.ensureInitialized();
+    const { owner, repo } = repository || this.defaultRepo;
+    
+    try {
+      const response = await this.octokit.issues.update({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        state: 'closed'
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error(`Error closing issue #${issueNumber}:`, error);
+      throw error;
+    }
+  }
+}
+
+// Create a singleton instance for use throughout the application
+export const githubService = new GitHubService(); 

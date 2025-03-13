@@ -4,7 +4,7 @@ describe('Issue Number Detection Tests', () => {
    * that we can directly test without dependencies
    */
   function extractIssueNumbers(text: string): number[] {
-    const issueRegex = /\bissue\s*#?(\d+)\b|\b#(\d+)\b/gi;
+    const issueRegex = /#(\d+)\b|\bissue\s*#?(\d+)\b/gi;
     const matches = Array.from(text.matchAll(issueRegex));
     
     return matches

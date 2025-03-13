@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+build
 *.local
 
 # Editor directories and files
@@ -31,3 +32,6 @@ setup_stuff.sh
 .env.development.local
 .env.test.local
 .qodo
+
+# Generated JavaScript files
+**/*.js.map

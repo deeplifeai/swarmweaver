@@ -35,3 +35,7 @@ setup_stuff.sh
 
 # Generated JavaScript files
 **/*.js.map
+
+fetch-dependabot-alerts.js
+check-outdated-packages.js
+dependency-security-audit.js

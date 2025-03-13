@@ -67,6 +67,8 @@ export class AgentOrchestrator {
   
   private async processAgentRequest(agent: Agent, message: AgentMessage) {
     try {
+      console.log(`Processing request for agent ${agent.name} (${agent.id}) with role ${agent.role}`);
+      
       // Get or create conversation history
       const conversationId = this.getConversationId(message.channel, message.replyToMessageId);
       const history = this.getConversationHistory(conversationId);
@@ -77,6 +79,10 @@ export class AgentOrchestrator {
       if (issueNumbers.length > 0) {
         // Add explicit instruction to get the issue if message mentions issue numbers
         enhancedMessage = `${message.content}\n\nIMPORTANT: The message mentions issue #${issueNumbers[0]}. Remember to first call getRepositoryInfo() and then getIssue({number: ${issueNumbers[0]}}) to get details about this issue before implementation.`;
+      }
+      
+      if (agent.role === 'PROJECT_MANAGER' && message.content.toLowerCase().includes('create an issue')) {
+        enhancedMessage += `\n\nIMPORTANT: As a Project Manager, you should use the createIssue function to create a GitHub issue for this task. After creating the issue, you should mention the Developer to assign them the task.`;
       }
       
       // Generate response from agent
@@ -125,7 +131,16 @@ export class AgentOrchestrator {
   }
   
   private getAgentById(id: string): Agent | undefined {
-    return this.agents[id];
+    const agent = this.agents[id];
+    
+    if (!agent) {
+      console.warn(`No agent found with ID: ${id}`);
+      console.log('Available agent IDs:', Object.keys(this.agents));
+    } else {
+      console.log(`Found agent: ${agent.name} (${agent.role}) with ID: ${id}`);
+    }
+    
+    return agent;
   }
   
   private getConversationId(channel: string, threadTs?: string): string {

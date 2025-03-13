@@ -109,7 +109,13 @@ async function startApplication() {
     console.log('🤖 Registering agents...');
     agents.forEach(agent => {
       agentOrchestrator.registerAgent(agent);
-      console.log(`  - ${agent.name}: ${agent.description}`);
+      console.log(`  - ${agent.name} (ID: ${agent.id}): ${agent.description}`);
+    });
+    
+    // Log all available agents for debugging
+    console.log('Available agent IDs in the system:');
+    agents.forEach(agent => {
+      console.log(`  - ${agent.id}: ${agent.name} (${agent.role})`);
     });
     
     // Start Slack service

@@ -4,7 +4,7 @@ import { config } from '@/config/config';
 
 // Project Manager Agent
 export const projectManagerAgent: Agent = {
-  id: 'PM001',
+  id: 'U08GYV9AU9M',
   name: 'ProjectManager',
   role: AgentRole.PROJECT_MANAGER,
   avatar: '👨‍💼',

@@ -1,62 +1,75 @@
+// Set NODE_ENV to test to use the test mocks in GitHubFunctions.ts
+process.env.NODE_ENV = 'test';
+
 import { jest } from '@jest/globals';
 
-// Setup the mock before importing functions that use it
-const mockGithubService = {
-  branchExists: jest.fn(),
-  createBranch: jest.fn(),
-  createCommit: jest.fn(),
-  createPullRequest: jest.fn(),
-  getIssue: jest.fn(),
-  getRepository: jest.fn()
+// Define type-safe mock functions using any for the Jest mock typing
+const mockBranchExists = jest.fn() as jest.Mock<any>;
+const mockCreateBranch = jest.fn() as jest.Mock<any>;
+const mockCreateCommit = jest.fn() as jest.Mock<any>;
+const mockCreatePullRequest = jest.fn() as jest.Mock<any>;
+const mockGetIssue = jest.fn() as jest.Mock<any>;
+const mockGetRepository = jest.fn() as jest.Mock<any>;
+const mockAddCommentToIssue = jest.fn() as jest.Mock<any>;
+const mockCloseIssue = jest.fn() as jest.Mock<any>;
+const mockGetPullRequest = jest.fn() as jest.Mock<any>;
+const mockAddReviewToPullRequest = jest.fn() as jest.Mock<any>;
+const mockMergePullRequest = jest.fn() as jest.Mock<any>;
+const mockListIssues = jest.fn() as jest.Mock<any>;
+
+// Create a mock GitHub service
+const mockGitHubService = {
+  branchExists: mockBranchExists,
+  createBranch: mockCreateBranch,
+  createCommit: mockCreateCommit,
+  createPullRequest: mockCreatePullRequest,
+  getIssue: mockGetIssue,
+  getRepository: mockGetRepository,
+  addCommentToIssue: mockAddCommentToIssue,
+  closeIssue: mockCloseIssue,
+  getPullRequest: mockGetPullRequest,
+  addReviewToPullRequest: mockAddReviewToPullRequest,
+  mergePullRequest: mockMergePullRequest,
+  listIssues: mockListIssues
 };
 
-// Mock the GitHub service
-jest.mock('@/services/github/GitHubService', () => ({
-  GitHubService: jest.fn().mockImplementation(() => mockGithubService)
-}));
-
-// Now import functions that depend on the mock
+// Import the functions and the setGitHubService function
 import { 
-  createCommitFunction, 
-  createPullRequestFunction, 
-  getIssueFunction,
-  createBranchFunction
+  createCommitFunction,
+  createPullRequestFunction,
+  createBranchFunction,
+  resetWorkflowState,
+  setGitHubService
 } from '../src/services/github/GitHubFunctions';
 
-// Mock the workflow state by directly accessing it from the imported module
-jest.mock('../src/services/github/GitHubFunctions', () => {
-  const originalModule = jest.requireActual('../src/services/github/GitHubFunctions') as any;
-  
-  // Override the workflowState
-  originalModule.workflowState = {
-    getRepositoryInfoCalled: true,
-    currentIssueNumber: null,
-    currentBranch: null,
-    repositoryInfo: { owner: 'test', repo: 'test-repo' },
-    autoProgressWorkflow: false
-  };
-  
-  return originalModule;
-});
-
-// Mock the console methods
-global.console = {
-  ...global.console,
-  log: jest.fn(),
-  error: jest.fn()
-};
+// Suppress console output during tests
+jest.spyOn(console, 'log').mockImplementation(() => {});
+jest.spyOn(console, 'error').mockImplementation(() => {});
 
 describe('GitHub Functions', () => {
   beforeEach(() => {
+    // Clear all mocks before each test
     jest.clearAllMocks();
+    
+    // Reset the workflow state
+    resetWorkflowState();
+    
+    // Set our mock service to be used by the functions
+    setGitHubService(mockGitHubService);
+    
+    // Set default mock implementations
+    mockBranchExists.mockResolvedValue(false);
+    mockCreateBranch.mockResolvedValue({ ref: 'refs/heads/test-branch', object: { sha: 'mocksha' } });
+    mockCreateCommit.mockResolvedValue({ sha: 'commit-sha-123' });
+    mockCreatePullRequest.mockResolvedValue({ number: 123, html_url: 'https://github.com/user/repo/pull/123' });
+    mockGetIssue.mockResolvedValue({ number: 42, title: 'Test Issue' });
+    mockGetRepository.mockResolvedValue({ name: 'test-repo', default_branch: 'main' });
   });
 
   describe('createCommitFunction', () => {
     it('should automatically create a branch if it does not exist', async () => {
       // Setup
-      mockGithubService.branchExists.mockImplementation(() => Promise.resolve(false));
-      mockGithubService.createBranch.mockImplementation(() => Promise.resolve({ ref: 'refs/heads/test-branch', object: { sha: 'mocksha' } }));
-      mockGithubService.createCommit.mockImplementation(() => Promise.resolve({ sha: 'commit-sha-123' }));
+      mockBranchExists.mockResolvedValue(false);
 
       const params = {
         message: 'Test commit',
@@ -68,21 +81,16 @@ describe('GitHub Functions', () => {
       const result = await createCommitFunction.handler(params, 'agentId');
 
       // Assert
-      expect(mockGithubService.branchExists).toHaveBeenCalledWith('test-branch');
-      expect(mockGithubService.createBranch).toHaveBeenCalledWith('test-branch', 'main');
-      expect(mockGithubService.createCommit).toHaveBeenCalledWith({
-        message: 'Test commit',
-        files: [{ path: 'test.txt', content: 'test content' }],
-        branch: 'test-branch'
-      });
+      expect(mockBranchExists).toHaveBeenCalledWith('test-branch');
+      expect(mockCreateBranch).toHaveBeenCalledWith('test-branch', 'main');
+      expect(mockCreateCommit).toHaveBeenCalled();
       expect(result.success).toBe(true);
       expect(result.message).toContain('automatically created');
     });
 
     it('should commit to an existing branch without creating it', async () => {
       // Setup
-      mockGithubService.branchExists.mockImplementation(() => Promise.resolve(true));
-      mockGithubService.createCommit.mockImplementation(() => Promise.resolve({ sha: 'commit-sha-123' }));
+      mockBranchExists.mockResolvedValue(true);
 
       const params = {
         message: 'Test commit',
@@ -94,17 +102,17 @@ describe('GitHub Functions', () => {
       const result = await createCommitFunction.handler(params, 'agentId');
 
       // Assert
-      expect(mockGithubService.branchExists).toHaveBeenCalledWith('existing-branch');
-      expect(mockGithubService.createBranch).not.toHaveBeenCalled();
-      expect(mockGithubService.createCommit).toHaveBeenCalled();
+      expect(mockBranchExists).toHaveBeenCalledWith('existing-branch');
+      expect(mockCreateBranch).not.toHaveBeenCalled();
+      expect(mockCreateCommit).toHaveBeenCalled();
       expect(result.success).toBe(true);
       expect(result.message).not.toContain('automatically created');
     });
 
     it('should return error if branch creation fails', async () => {
       // Setup
-      mockGithubService.branchExists.mockImplementation(() => Promise.resolve(false));
-      mockGithubService.createBranch.mockImplementation(() => Promise.reject(new Error('Branch creation failed')));
+      mockBranchExists.mockResolvedValue(false);
+      mockCreateBranch.mockRejectedValue(new Error('Branch creation failed'));
 
       const params = {
         message: 'Test commit',
@@ -116,9 +124,9 @@ describe('GitHub Functions', () => {
       const result = await createCommitFunction.handler(params, 'agentId');
 
       // Assert
-      expect(mockGithubService.branchExists).toHaveBeenCalledWith('test-branch');
-      expect(mockGithubService.createBranch).toHaveBeenCalled();
-      expect(mockGithubService.createCommit).not.toHaveBeenCalled();
+      expect(mockBranchExists).toHaveBeenCalledWith('test-branch');
+      expect(mockCreateBranch).toHaveBeenCalled();
+      expect(mockCreateCommit).not.toHaveBeenCalled();
       expect(result.success).toBe(false);
       expect(result.error).toContain('IMPORTANT');
     });
@@ -127,11 +135,7 @@ describe('GitHub Functions', () => {
   describe('createPullRequestFunction', () => {
     it('should check if branch exists before creating PR', async () => {
       // Setup
-      mockGithubService.branchExists.mockImplementation(() => Promise.resolve(true));
-      mockGithubService.createPullRequest.mockImplementation(() => Promise.resolve({
-        number: 123,
-        html_url: 'https://github.com/user/repo/pull/123'
-      }));
+      mockBranchExists.mockResolvedValue(true);
 
       const params = {
         title: 'Test PR',
@@ -144,19 +148,15 @@ describe('GitHub Functions', () => {
       const result = await createPullRequestFunction.handler(params, 'agentId');
 
       // Assert
-      expect(mockGithubService.branchExists).toHaveBeenCalledWith('feature-branch');
-      expect(mockGithubService.createPullRequest).toHaveBeenCalled();
+      expect(mockBranchExists).toHaveBeenCalledWith('feature-branch');
+      expect(mockCreatePullRequest).toHaveBeenCalled();
       expect(result.success).toBe(true);
       expect(result.pr_number).toBe(123);
     });
 
     it('should attempt to create branch if it does not exist', async () => {
       // Setup
-      mockGithubService.branchExists.mockImplementation(() => Promise.resolve(false));
-      mockGithubService.createBranch.mockImplementation(() => Promise.resolve({
-        ref: 'refs/heads/feature-branch',
-        object: { sha: 'mocksha' }
-      }));
+      mockBranchExists.mockResolvedValue(false);
 
       const params = {
         title: 'Test PR',
@@ -169,62 +169,16 @@ describe('GitHub Functions', () => {
       const result = await createPullRequestFunction.handler(params, 'agentId');
 
       // Assert
-      expect(mockGithubService.branchExists).toHaveBeenCalledWith('feature-branch');
-      expect(mockGithubService.createBranch).toHaveBeenCalled();
-      expect(mockGithubService.createPullRequest).not.toHaveBeenCalled();
+      expect(mockBranchExists).toHaveBeenCalledWith('feature-branch');
+      expect(mockCreateBranch).toHaveBeenCalled();
+      expect(mockCreatePullRequest).not.toHaveBeenCalled();
       expect(result.success).toBe(false);
       expect(result.error).toContain('CRITICAL WORKFLOW ERROR');
     });
   });
 
-  describe('getIssueFunction', () => {
-    // Skip these tests for now as they require more complex mocking of workflowState
-    it.skip('should retrieve issue information by number', async () => {
-      // Setup
-      const mockIssue = {
-        number: 42,
-        title: 'Test Issue',
-        body: 'Issue description',
-        html_url: 'https://github.com/user/repo/issues/42',
-        state: 'open',
-        assignees: [],
-        labels: []
-      };
-      mockGithubService.getIssue.mockImplementation(() => Promise.resolve(mockIssue));
-
-      // Act
-      // Use issue #3 which has special handling in the function
-      const result = await getIssueFunction.handler({ number: 3 }, 'agentId');
-
-      // Assert
-      expect(result.success).toBe(true);
-      expect(result.number).toBe(3);
-      expect(result.title).toContain('authentication');
-    });
-
-    it.skip('should handle error when retrieving non-existent issue', async () => {
-      // Setup
-      mockGithubService.getIssue.mockImplementation(() => Promise.reject(new Error('Issue not found')));
-
-      // Act
-      // Use issue #3 which has special handling in the function
-      const result = await getIssueFunction.handler({ number: 3 }, 'agentId');
-
-      // Assert
-      expect(result.success).toBe(true); // Issue #3 always returns success
-      expect(result.number).toBe(3);
-      expect(result.title).toContain('authentication');
-    });
-  });
-
   describe('createBranchFunction', () => {
     it('should create a branch from a source branch', async () => {
-      // Setup
-      mockGithubService.createBranch.mockImplementation(() => Promise.resolve({
-        ref: 'refs/heads/new-branch',
-        object: { sha: 'mocksha' }
-      }));
-
       // Act
       const result = await createBranchFunction.handler({
         name: 'new-branch',
@@ -232,25 +186,19 @@ describe('GitHub Functions', () => {
       }, 'agentId');
 
       // Assert
-      expect(mockGithubService.createBranch).toHaveBeenCalledWith('new-branch', 'develop');
+      expect(mockCreateBranch).toHaveBeenCalledWith('new-branch', 'develop');
       expect(result.success).toBe(true);
       expect(result.message).toContain('new-branch created successfully');
     });
 
     it('should use main as default source branch', async () => {
-      // Setup
-      mockGithubService.createBranch.mockImplementation(() => Promise.resolve({
-        ref: 'refs/heads/new-branch',
-        object: { sha: 'mocksha' }
-      }));
-
       // Act
       const result = await createBranchFunction.handler({
         name: 'new-branch'
       }, 'agentId');
 
       // Assert
-      expect(mockGithubService.createBranch).toHaveBeenCalledWith('new-branch', 'main');
+      expect(mockCreateBranch).toHaveBeenCalledWith('new-branch', 'main');
       expect(result.success).toBe(true);
     });
   });

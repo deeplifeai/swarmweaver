@@ -45,10 +45,28 @@ const mockIssue3 = {
 };
 
 // Initialize the GitHub service with proper error handling
-let githubService: GitHubService;
+export let githubService: any;
 
 try {
-  githubService = new GitHubService();
+  // In tests, we'll use a mock version
+  if (process.env.NODE_ENV === 'test') {
+    githubService = {
+      getRepository: async () => ({}),
+      getIssue: async () => ({}),
+      createIssue: async () => ({}),
+      addCommentToIssue: async () => ({}),
+      createBranch: async () => ({}),
+      branchExists: async () => ({}),
+      createCommit: async () => ({}),
+      createPullRequest: async () => ({}),
+      getPullRequest: async () => ({}),
+      addReviewToPullRequest: async () => ({}),
+      mergePullRequest: async () => ({}),
+      closeIssue: async () => ({})
+    };
+  } else {
+    githubService = new GitHubService();
+  }
 } catch (error) {
   console.error('Failed to initialize GitHubService:', error);
   // Create a fallback service that will provide clear error messages
@@ -67,6 +85,11 @@ try {
     },
     // ... other methods with appropriate error messages
   } as any;
+}
+
+// Function to set the githubService for testing
+export function setGitHubService(mockService: any) {
+  githubService = mockService;
 }
 
 // Create Issue Function
@@ -748,6 +771,7 @@ if (typeof module !== 'undefined' && module.exports) {
     setCurrentIssueNumber,
     setIssueNumber,
     resetWorkflowState,
+    setGitHubService,
     // Export direct references to the individual functions for CommonJS
     getRepositoryInfoFunction,
     getIssueFunction,

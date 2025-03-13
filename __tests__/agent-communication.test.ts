@@ -18,7 +18,7 @@ jest.mock('@/utils/EventBus', () => ({
   }
 }));
 
-describe.skip('Agent Communication Tests', () => {
+describe('Agent Communication Tests', () => {
   let mockSlackService: any;
   let mockAIService: any;
   let orchestrator: any;
@@ -177,14 +177,15 @@ describe.skip('Agent Communication Tests', () => {
     });
 
     it('should route messages through event bus', async () => {
-      // Create a message event
+      // Create a message event that matches the AgentMessage interface
       const messageEvent = {
-        type: EventType.AGENT_MESSAGE,
-        payload: {
-          targetAgentId: developerAgent.id,
-          message: 'Can you review this PR?',
-          context: { channel: 'C123', threadTs: 'T123' }
-        }
+        id: 'msg123',
+        timestamp: '1620000000.000100',
+        agentId: 'user123',
+        content: 'Can you review this PR?',
+        channel: 'C123',
+        mentions: [developerAgent.id],
+        replyToMessageId: 'T123'
       };
 
       // Set up a handler for the event
@@ -195,8 +196,8 @@ describe.skip('Agent Communication Tests', () => {
         }
       });
 
-      // Initialize orchestrator to register event handlers
-      (orchestrator as any).initialize();
+      // Call setupEventListeners instead of initialize
+      (orchestrator as any).setupEventListeners();
 
       // Mock AI response
       mockAIService.generateAgentResponse.mockResolvedValueOnce({
@@ -206,10 +207,7 @@ describe.skip('Agent Communication Tests', () => {
 
       // Simulate emitting the event
       if (eventHandler) {
-        eventHandler({
-          agentId: 'agent2',
-          message: "I'm Agent 2 responding to Agent 1"
-        });
+        await eventHandler(messageEvent);
       }
 
       // Verify developer agent was called

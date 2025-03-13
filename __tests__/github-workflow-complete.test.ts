@@ -48,11 +48,11 @@ describe('Complete GitHub Workflow Tests', () => {
 
     // Reset the mocks
     mockSlackService = new SlackService() as any;
-    mockSlackService.sendMessage = jest.fn().mockResolvedValue(true);
+    mockSlackService.sendMessage = jest.fn().mockImplementation(() => Promise.resolve(true));
 
     mockAIService = new AIService() as any;
     mockAIService.generateAgentResponse = jest.fn();
-    mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
+    mockAIService.extractFunctionResults = jest.fn().mockImplementation(() => 'Function results');
 
     // Set up the orchestrator with our mocks
     orchestrator = new AgentOrchestrator(mockSlackService, mockAIService);
@@ -61,7 +61,7 @@ describe('Complete GitHub Workflow Tests', () => {
     (orchestrator as any).registerAgent(developerAgent);
 
     // Mock GitHub service functions
-    (githubService.getRepository as jest.Mock).mockResolvedValue({
+    (githubService.getRepository as jest.Mock).mockImplementation(() => Promise.resolve({
       name: 'test-repo',
       full_name: 'user/test-repo',
       description: 'Test repository',
@@ -72,10 +72,10 @@ describe('Complete GitHub Workflow Tests', () => {
       stargazers_count: 10,
       created_at: '2023-01-01',
       updated_at: '2023-05-01'
-    });
+    }));
 
     // Mock issue creation
-    (githubService.createIssue as jest.Mock).mockResolvedValue({
+    (githubService.createIssue as jest.Mock).mockImplementation(() => Promise.resolve({
       number: 42,
       title: 'New feature request',
       body: 'This is a test issue',
@@ -83,10 +83,10 @@ describe('Complete GitHub Workflow Tests', () => {
       state: 'open',
       assignees: [],
       labels: []
-    });
+    }));
 
     // Mock get issue
-    (githubService.getIssue as jest.Mock).mockResolvedValue({
+    (githubService.getIssue as jest.Mock).mockImplementation(() => Promise.resolve({
       number: 42,
       title: 'New feature request',
       body: 'This is a test issue',
@@ -94,67 +94,67 @@ describe('Complete GitHub Workflow Tests', () => {
       state: 'open',
       assignees: [],
       labels: []
-    });
+    }));
 
     // Mock issue comment
-    (githubService.addCommentToIssue as jest.Mock).mockResolvedValue({
+    (githubService.addCommentToIssue as jest.Mock).mockImplementation(() => Promise.resolve({
       id: 123,
       body: 'This is a test comment',
       html_url: 'https://github.com/user/test-repo/issues/42#issuecomment-123'
-    });
+    }));
 
     // Mock branch checks and creation
-    (githubService.branchExists as jest.Mock).mockResolvedValue(false);
-    (githubService.createBranch as jest.Mock).mockResolvedValue({
+    (githubService.branchExists as jest.Mock).mockImplementation(() => Promise.resolve(false));
+    (githubService.createBranch as jest.Mock).mockImplementation(() => Promise.resolve({
       ref: 'refs/heads/feature-42',
       object: { sha: 'test-sha' }
-    });
+    }));
 
     // Mock commit creation
-    (githubService.createCommit as jest.Mock).mockResolvedValue({
+    (githubService.createCommit as jest.Mock).mockImplementation(() => Promise.resolve({
       sha: 'commit-sha-123',
       html_url: 'https://github.com/user/test-repo/commit/commit-sha-123'
-    });
+    }));
 
     // Mock PR creation and retrieval
-    (githubService.createPullRequest as jest.Mock).mockResolvedValue({
+    (githubService.createPullRequest as jest.Mock).mockImplementation(() => Promise.resolve({
       number: 123,
       title: 'Implement new feature',
       body: 'Fixes #42',
       html_url: 'https://github.com/user/test-repo/pull/123',
       state: 'open'
-    });
+    }));
     
-    (githubService.getPullRequest as jest.Mock).mockResolvedValue({
+    (githubService.getPullRequest as jest.Mock).mockImplementation(() => Promise.resolve({
       number: 123,
       title: 'Implement new feature',
       body: 'Fixes #42',
       html_url: 'https://github.com/user/test-repo/pull/123',
       state: 'open'
-    });
+    }));
 
     // Mock PR review
-    (githubService.addReviewToPullRequest as jest.Mock).mockResolvedValue({
+    (githubService.addReviewToPullRequest as jest.Mock).mockImplementation(() => Promise.resolve({
       id: 456,
       body: 'LGTM! Approved.',
       state: 'APPROVED',
       html_url: 'https://github.com/user/test-repo/pull/123#pullrequestreview-456'
-    });
+    }));
 
     // Mock PR merge
-    (githubService.mergePullRequest as jest.Mock).mockResolvedValue({
+    (githubService.mergePullRequest as jest.Mock).mockImplementation(() => Promise.resolve({
       merged: true,
       message: 'Pull request successfully merged',
       sha: 'merge-sha-789'
-    });
+    }));
 
     // Mock issue closing
-    (githubService.closeIssue as jest.Mock).mockResolvedValue({
+    (githubService.closeIssue as jest.Mock).mockImplementation(() => Promise.resolve({
       number: 42,
       state: 'closed',
       title: 'New feature request',
       html_url: 'https://github.com/user/test-repo/issues/42'
-    });
+    }));
   });
 
   it('should complete a full GitHub workflow from issue creation to closing', async () => {
@@ -485,7 +485,7 @@ describe('Complete GitHub Workflow Tests', () => {
     };
 
     // Simulate branch already exists error
-    (githubService.branchExists as jest.Mock).mockResolvedValueOnce(true);
+    (githubService.branchExists as jest.Mock).mockImplementation(() => Promise.resolve(true));
 
     // Mock AI response for branch creation with error
     mockAIService.generateAgentResponse.mockResolvedValueOnce({

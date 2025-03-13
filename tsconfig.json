@@ -17,6 +17,7 @@
     "allowJs": true,
     "noUnusedLocals": false,
     "strictNullChecks": false,
-    "sourceMap": true
+    "sourceMap": true,
+    "esModuleInterop": true
   }
 }

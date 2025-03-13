@@ -2,46 +2,24 @@ import { AIService } from '@/services/ai/AIService';
 import { Agent, AgentRole, AgentFunction } from '@/types/agents/Agent';
 import { OpenAIMessage } from '@/types/openai/OpenAITypes';
 
-// Mock OpenAI
-jest.mock('openai', () => {
-  const mockCreate = jest.fn().mockResolvedValue({
-    choices: [
-      {
-        message: {
-          content: 'This is a test response',
-          tool_calls: [
-            {
-              type: 'function',
-              function: {
-                name: 'testFunction',
-                arguments: JSON.stringify({ param1: 'value1', param2: 'value2' })
-              }
+// Create a proper mock create function for reference
+const mockCreate = jest.fn().mockResolvedValue({
+  choices: [
+    {
+      message: {
+        content: 'This is a test response',
+        tool_calls: [
+          {
+            type: 'function',
+            function: {
+              name: 'testFunction',
+              arguments: JSON.stringify({ param1: 'value1', param2: 'value2' })
             }
-          ]
-        }
+          }
+        ]
       }
-    ]
-  });
-
-  // Create a class that can be instantiated
-  class MockOpenAI {
-    constructor() {}
-    
-    chat = {
-      completions: {
-        create: mockCreate
-      }
-    };
-  }
-  
-  // Return the constructor function directly
-  const wrapper = (config) => {
-    return new MockOpenAI();
-  };
-  
-  // Add the default property needed for ES module interop
-  wrapper.default = wrapper;
-  return wrapper;
+    }
+  ]
 });
 
 // Mock config
@@ -148,7 +126,6 @@ describe('AIService', () => {
       
       const result = aiService.extractFunctionResults([mockCall]);
       
-      console.log("Test result 2:", result);
       expect(result).toMatch(/testFunction/);
       
       // Just test one expectation for now

@@ -3,7 +3,7 @@ import { AgentOrchestrator } from '@/services/ai/AgentOrchestrator';
 
 // Create mock services
 const mockSlackService = {
-  sendMessage: jest.fn().mockResolvedValue(true)
+  sendMessage: jest.fn().mockImplementation(() => Promise.resolve(true))
 };
 
 const mockAIService = {
@@ -95,13 +95,13 @@ describe('AgentOrchestrator', () => {
       // Register the mock agent
       (orchestrator as any).registerAgent(mockAgent);
       
-      // Mock the AI service responses
-      mockAIService.generateAgentResponse.mockResolvedValue({
+      // Mock the AI service responses using mockImplementation for better type compatibility
+      mockAIService.generateAgentResponse.mockImplementation(() => Promise.resolve({
         response: 'I will help you implement that issue',
         functionCalls: []
-      });
+      }));
       
-      mockAIService.extractFunctionResults.mockReturnValue('');
+      mockAIService.extractFunctionResults.mockImplementation(() => '');
     });
 
     it('should enhance message with issue number instructions', async () => {
@@ -112,7 +112,7 @@ describe('AgentOrchestrator', () => {
       expect(aiServiceArgs[0]).toBe(mockAgent);
       expect(aiServiceArgs[1]).toContain('issue #42');
       expect(aiServiceArgs[1]).toContain('IMPORTANT');
-      expect(aiServiceArgs[1]).toContain('Remember to first call getIssue');
+      expect(aiServiceArgs[1]).toContain('Remember to first call getRepositoryInfo() and then getIssue');
     });
 
     it('should send the response back to Slack', async () => {

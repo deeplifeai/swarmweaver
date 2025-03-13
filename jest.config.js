@@ -1,4 +1,4 @@
-module.exports = {
+export default {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
   moduleNameMapper: {
@@ -9,4 +9,5 @@ module.exports = {
       tsconfig: 'tsconfig.json',
     }],
   },
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };

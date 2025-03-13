@@ -158,8 +158,12 @@ export class AgentOrchestrator {
   
   // Extract issue numbers from a message
   private extractIssueNumbers(content: string): number[] {
-    const matches = content.match(/#(\d+)/g) || [];
-    return matches.map(match => parseInt(match.substring(1)));
+    const issueRegex = /#(\d+)\b|\bissue\s*#?(\d+)\b/gi;
+    const matches = Array.from(content.matchAll(issueRegex));
+    
+    return matches
+      .map(match => parseInt(match[1] || match[2], 10))
+      .filter(num => !isNaN(num));
   }
 
   // Determine which agent should handle a message based on content

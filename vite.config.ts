@@ -16,4 +16,44 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          // UI Components
+          if (id.includes('@radix-ui/react-')) {
+            return 'ui-components';
+          }
+          
+          // Charts
+          if (id.includes('recharts') || id.includes('@xyflow/react')) {
+            return 'charts';
+          }
+          
+          // Form libraries
+          if (id.includes('react-hook-form') || 
+              id.includes('@hookform/resolvers') || 
+              id.includes('zod')) {
+            return 'form-libs';
+          }
+          
+          // Vendor (core libraries)
+          if (id.includes('node_modules/react') || 
+              id.includes('node_modules/react-dom') || 
+              id.includes('node_modules/react-router-dom')) {
+            return 'vendor';
+          }
+          
+          // App code
+          if (id.includes('/src/services/')) {
+            return 'services';
+          }
+          
+          if (id.includes('/src/utils/')) {
+            return 'utils';
+          }
+        }
+      }
+    }
+  }
 }));

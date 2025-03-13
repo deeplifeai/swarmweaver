@@ -42,11 +42,11 @@ describe('GitHub Workflow Integration Tests', () => {
 
     // Reset the mocks
     mockSlackService = new SlackService() as any;
-    mockSlackService.sendMessage = jest.fn().mockResolvedValue(true);
+    mockSlackService.sendMessage = jest.fn().mockImplementation(() => Promise.resolve(true));
 
     mockAIService = new AIService() as any;
     mockAIService.generateAgentResponse = jest.fn();
-    mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
+    mockAIService.extractFunctionResults = jest.fn().mockImplementation(() => 'Function results');
 
     // Set up the orchestrator with our mocks
     orchestrator = new AgentOrchestrator(mockSlackService, mockAIService);
@@ -55,7 +55,7 @@ describe('GitHub Workflow Integration Tests', () => {
     (orchestrator as any).registerAgent(developerAgent);
 
     // Mock GitHub service functions
-    (githubService.getRepository as jest.Mock).mockResolvedValue({
+    (githubService.getRepository as jest.Mock).mockImplementation(() => Promise.resolve({
       name: 'test-repo',
       full_name: 'user/test-repo',
       description: 'Test repository',
@@ -66,9 +66,9 @@ describe('GitHub Workflow Integration Tests', () => {
       stargazers_count: 10,
       created_at: '2023-01-01',
       updated_at: '2023-05-01'
-    });
+    }));
 
-    (githubService.getIssue as jest.Mock).mockResolvedValue({
+    (githubService.getIssue as jest.Mock).mockImplementation(() => Promise.resolve({
       number: 42,
       title: 'Implement new feature',
       body: 'This is a test issue',
@@ -76,23 +76,23 @@ describe('GitHub Workflow Integration Tests', () => {
       state: 'open',
       assignees: [],
       labels: []
-    });
+    }));
 
-    (githubService.branchExists as jest.Mock).mockResolvedValue(false);
+    (githubService.branchExists as jest.Mock).mockImplementation(() => Promise.resolve(false));
 
-    (githubService.createBranch as jest.Mock).mockResolvedValue({
+    (githubService.createBranch as jest.Mock).mockImplementation(() => Promise.resolve({
       ref: 'refs/heads/feature-42',
       object: { sha: 'test-sha' }
-    });
+    }));
 
-    (githubService.createCommit as jest.Mock).mockResolvedValue({
+    (githubService.createCommit as jest.Mock).mockImplementation(() => Promise.resolve({
       sha: 'commit-sha-123'
-    });
+    }));
 
-    (githubService.createPullRequest as jest.Mock).mockResolvedValue({
+    (githubService.createPullRequest as jest.Mock).mockImplementation(() => Promise.resolve({
       number: 123,
       html_url: 'https://github.com/user/test-repo/pull/123'
-    });
+    }));
   });
 
   describe('Complete GitHub workflow', () => {
@@ -197,7 +197,7 @@ describe('GitHub Workflow Integration Tests', () => {
       };
 
       // Simulate branch error
-      (githubService.branchExists as jest.Mock).mockRejectedValueOnce(new Error('Branch does not exist'));
+      (githubService.branchExists as jest.Mock).mockImplementation(() => Promise.reject(new Error('Branch does not exist')));
 
       // Simulate AI responses that skip the branch creation step
       mockAIService.generateAgentResponse.mockResolvedValue({

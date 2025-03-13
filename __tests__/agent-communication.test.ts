@@ -28,11 +28,11 @@ describe('Agent Communication Tests', () => {
 
     // Reset the mocks
     mockSlackService = new SlackService() as any;
-    mockSlackService.sendMessage = jest.fn().mockResolvedValue(true);
+    mockSlackService.sendMessage = jest.fn().mockImplementation(() => Promise.resolve(true));
 
     mockAIService = new AIService() as any;
     mockAIService.generateAgentResponse = jest.fn();
-    mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
+    mockAIService.extractFunctionResults = jest.fn().mockImplementation(() => 'Function results');
 
     // Set up the orchestrator with our mocks
     orchestrator = new AgentOrchestrator(mockSlackService, mockAIService);

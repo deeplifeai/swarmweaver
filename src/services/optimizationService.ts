@@ -1,5 +1,6 @@
 import { AIModel } from "@/types/agent";
 import { generateAgentResponse } from "./ai-service";
+import { estimateTokenCount, chunkText } from "@/utils/tokenManager";
 
 /**
  * Uses GPT-4o to shorten a system prompt while preserving critical instructions
@@ -140,8 +141,6 @@ export async function processWithChunkedStrategy(
   input: string,
   apiKey: string
 ): Promise<string> {
-  const { estimateTokenCount } = await import('@/utils/tokenManager');
-  
   // Calculate appropriate chunk size based on model
   const estimatedInputTokens = estimateTokenCount(input);
   const estimatedSystemTokens = estimateTokenCount(systemPrompt);
@@ -176,9 +175,6 @@ Your response for each chunk will be combined with responses for other chunks la
     
     // Make sure we're careful about model compatibility
     const useOpenAIModels = provider === 'openai';
-    
-    // Break input into chunks at natural boundaries
-    const { chunkText } = await import('@/utils/tokenManager');
     
     // Use the more intelligent chunking algorithm from tokenManager
     const chunks = chunkText(input, MAX_SAFE_TOKENS_PER_CHUNK);

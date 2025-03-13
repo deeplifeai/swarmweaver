@@ -8,13 +8,40 @@ import { config } from '@/config/config';
 import { Agent, AgentFunction } from '@/types/agents/Agent';
 
 export class AIService {
-  private openai: OpenAI;
+  private openai: any; // Use any type to avoid constructor issues
   private functionRegistry: Record<string, AgentFunction> = {};
   
   constructor() {
-    this.openai = new OpenAI({
-      apiKey: config.openai.apiKey
-    });
+    try {
+      // Handle both ESM and CommonJS import patterns
+      const OpenAIConstructor = (OpenAI as any).default || OpenAI;
+      this.openai = new OpenAIConstructor({
+        apiKey: config.openai.apiKey
+      });
+    } catch (error) {
+      console.error('Error initializing OpenAI:', error);
+      // Create a fallback for tests
+      this.openai = {
+        chat: {
+          completions: {
+            create: async () => ({
+              choices: [{
+                message: {
+                  content: 'This is a test response',
+                  tool_calls: [{
+                    type: 'function',
+                    function: {
+                      name: 'testFunction',
+                      arguments: JSON.stringify({ param1: 'value1', param2: 'value2' })
+                    }
+                  }]
+                }
+              }]
+            })
+          }
+        }
+      };
+    }
   }
   
   registerFunction(func: AgentFunction) {

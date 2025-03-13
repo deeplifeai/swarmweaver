@@ -72,7 +72,7 @@ describe('Slack GitHub Integration Tests', () => {
             name: 'createIssue',
             parameters: {
               title: 'Fibonacci API Endpoint',
-              body: 'Implement an API endpoint that returns Fibonacci sequence values for a given index.',
+              body: 'Implement an API endpoint that returns Fibonacci sequence values for a given index.\n\n## Assigned Agents\n- Developer',
               assignees: ['Developer'],
               labels: ['feature', 'api']
             },
@@ -128,7 +128,7 @@ describe('Slack GitHub Integration Tests', () => {
             name: 'createIssue',
             parameters: {
               title: 'Implement Fibonacci API Endpoint',
-              body: 'Create an API endpoint that returns the Fibonacci sequence value at a given index.',
+              body: 'Create an API endpoint that returns the Fibonacci sequence value at a given index.\n\n## Assigned Agents\n- Developer',
               assignees: ['Developer'],
               labels: ['feature']
             },

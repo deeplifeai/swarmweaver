@@ -89,7 +89,6 @@ describe('GitHubService', () => {
       const issue = {
         title: 'Test Issue',
         body: 'This is a test issue',
-        assignees: ['user1'],
         labels: ['bug']
       };
 

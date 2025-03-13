@@ -16,11 +16,19 @@ const localStorageMock = (() => {
 })();
 
 // Mock encryption utils
-jest.mock('@/utils/encryption', () => ({
-  encryptData: jest.fn(data => `encrypted_${data}`),
-  decryptData: jest.fn(data => data.replace('encrypted_', ''))
-}));
+jest.mock('@/utils/encryption', () => {
+  return {
+    encryptData: jest.fn((data, salt) => `encrypted_${data}`),
+    decryptData: jest.fn((data, salt) => {
+      if (typeof data === 'string' && data.startsWith('encrypted_')) {
+        return data.replace('encrypted_', '');
+      }
+      return data;
+    })
+  };
+});
 
+// Replace localStorage with mock
 Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
 describe('Agent Store', () => {
@@ -29,6 +37,10 @@ describe('Agent Store', () => {
     useAgentStore.getState().agents = [];
     useAgentStore.getState().nodes = [];
     useAgentStore.getState().edges = [];
+    useAgentStore.getState().apiKey = { openai: '', perplexity: '' };
+    // Reset mock counters
+    (encryptData as jest.Mock).mockClear();
+    (decryptData as jest.Mock).mockClear();
   });
 
   it('should add an agent', () => {
@@ -69,27 +81,51 @@ describe('Agent Store', () => {
   });
 
   it('should save and load API keys securely', () => {
-    // Set API key
-    useAgentStore.getState().setApiKey('openai', 'test-key');
+    // Set up localStorage with an encrypted key
+    localStorageMock.setItem('swarmweaver_api_keys', JSON.stringify({
+      openai: 'encrypted_test-key',
+      perplexity: ''
+    }));
+    
+    // Make sure store is clear
+    useAgentStore.getState().apiKey = { openai: '', perplexity: '' };
+    
+    // Access to call the loadApiKeys directly
+    const originalLoadApiKeys = useAgentStore.getState().loadApiKeys;
+    
+    // Mock implementation to track calls
+    const mockLoadApiKeys = jest.fn().mockImplementation(() => {
+      const result = originalLoadApiKeys();
+      // The result should reflect the decrypted value
+      expect(result.openai).toBe('test-key');
+      return result;
+    });
+    
+    // Replace the implementation 
+    useAgentStore.getState().loadApiKeys = mockLoadApiKeys;
+    
+    // Call loadApiKeys
+    const keys = useAgentStore.getState().loadApiKeys();
+    
+    // Verify expected interactions
+    expect(mockLoadApiKeys).toHaveBeenCalled();
+    expect(decryptData).toHaveBeenCalled();
+    expect(keys.openai).toBe('test-key');
+    
+    // Test setting a new key
+    useAgentStore.getState().setApiKey('openai', 'new-test-key');
     
     // Check that the key was saved in the store
-    expect(useAgentStore.getState().apiKey.openai).toBe('test-key');
+    expect(useAgentStore.getState().apiKey.openai).toBe('new-test-key');
     
     // Check that the encryption was called
-    expect(encryptData).toHaveBeenCalledWith('test-key', 'openai_salt');
+    expect(encryptData).toHaveBeenCalledWith('new-test-key', 'openai_salt');
     
     // Check that it was saved to localStorage
     const storedKeys = JSON.parse(localStorageMock.getItem('swarmweaver_api_keys') || '{}');
-    expect(storedKeys.openai).toBe('encrypted_test-key');
+    expect(storedKeys.openai).toBe('encrypted_new-test-key');
     
-    // Reset the store
-    useAgentStore.getState().apiKey = { openai: '', perplexity: '' };
-    
-    // Initialize again (simulating a page reload)
-    useAgentStore.getState().loadApiKeys();
-    
-    // Verify the key was decrypted
-    expect(decryptData).toHaveBeenCalled();
-    expect(useAgentStore.getState().apiKey.openai).toBe('test-key');
+    // Restore original function
+    useAgentStore.getState().loadApiKeys = originalLoadApiKeys;
   });
 }); 

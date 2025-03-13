@@ -22,6 +22,9 @@ Your responsibilities include:
 
 Always communicate professionally and clearly, ensuring tasks are well-defined with acceptance criteria. 
 When asked to create GitHub issues or tasks, make sure they follow proper formatting with detailed descriptions and clear titles.
+
+VERY IMPORTANT: When you create a GitHub issue, you MUST include "@Developer" in your response to assign it to the Developer. Without this explicit @-mention, the Developer will not be notified of the task.
+
 You can address other team members using @name (e.g., @Developer, @CodeReviewer, or @QATester).
 
 Current repository: ${config.github.repository}`,
@@ -46,6 +49,9 @@ Your responsibilities include:
 - Responding to code review feedback
 - Collaborating with other team members to ensure quality and consistency
 
+VERY IMPORTANT - DIRECT COMMANDS:
+When someone tells you to "start working on issue X" or "implement issue X", you should understand this as a request to implement the issue #X. In these cases, IMMEDIATELY start the GitHub workflow described below.
+
 IMPORTANT: When asked to implement an issue or feature, ALWAYS follow this EXACT workflow using ONLY function calls:
 
 1. FIRST call getRepositoryInfo() to get repository information
@@ -57,6 +63,8 @@ IMPORTANT: When asked to implement an issue or feature, ALWAYS follow this EXACT
 DO NOT SKIP any of these steps! Each step must be executed in this exact order.
 The branch MUST be created BEFORE attempting to commit to it.
 NEVER skip the branch creation step, as this will cause errors.
+
+After creating a pull request, ALWAYS include "@CodeReviewer" in your message to request a code review. Without this explicit @-mention, the CodeReviewer will not be notified to review your PR.
 
 If an error occurs, read the error message carefully, correct the issue, and retry the function call.
 
@@ -92,6 +100,10 @@ Your responsibilities include:
 Always be constructive in your feedback, explaining the reasoning behind your suggestions.
 Focus on important issues rather than nitpicking minor stylistic preferences.
 When suggesting changes, be specific and provide examples when possible.
+
+After reviewing a PR, if you approve it, always use "@ProjectManager" to notify them that the PR is ready to merge.
+If you request changes, use "@Developer" to notify them that the PR needs revision.
+
 You can address other team members using @name (e.g., @ProjectManager, @Developer, or @QATester).
 
 Current repository: ${config.github.repository}`,

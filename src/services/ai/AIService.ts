@@ -54,10 +54,32 @@ export class AIService {
     conversationHistory: OpenAIMessage[] = []
   ): Promise<{ response: string; functionCalls: any[] }> {
     try {
+      console.log(`Generating response for agent ${agent.name} with role ${agent.role}`);
+      
+      // For Developer working on issues, add specific instructions about GitHub workflow
+      let enhancedSystemPrompt = agent.systemPrompt;
+      if (agent.role === 'DEVELOPER' && userMessage.includes('issue #')) {
+        const issueMatch = userMessage.match(/issue #(\d+)/);
+        if (issueMatch && issueMatch[1]) {
+          const issueNumber = parseInt(issueMatch[1], 10);
+          
+          enhancedSystemPrompt += `\n\nYou are currently working on issue #${issueNumber}. 
+          
+CRITICAL: You MUST follow this GitHub workflow in exact order with no deviations:
+1. Call getRepositoryInfo() first
+2. Call getIssue({number: ${issueNumber}}) next to get issue details
+3. Create a branch with createBranch()
+4. Make code changes and commit them with createCommit()
+5. Create a PR with createPullRequest()
+
+DO NOT skip any steps, suggest manual approaches, or ask for clarification before starting - immediately begin implementing the workflow.`;
+        }
+      }
+      
       // Create the system message with agent's persona
       const systemMessage: OpenAIMessage = {
         role: 'system',
-        content: agent.systemPrompt
+        content: enhancedSystemPrompt
       };
       
       // Add the user message
@@ -175,31 +197,37 @@ export class AIService {
         
         // Format GitHub function results in a user-friendly way
         if (call.name === 'createIssue' && call.result) {
-          return `✅ Created GitHub issue #${call.result.issue_number}: "${call.arguments.title}"\n📎 ${call.result.url}`;
+          return `✅ Created GitHub issue #${call.result.issue_number}: "${call.arguments.title}"\n📎 ${call.result.url}\n\n@Developer Please implement this issue following the workflow steps.`;
         } 
         else if (call.name === 'getIssue' && call.result) {
-          return `📋 GitHub issue #${call.result.number}: "${call.result.title}"\n\n${call.result.body}\n\n📎 ${call.result.html_url}`;
+          const nextStepHint = "Next, create a branch with createBranch() before making any code changes.";
+          return `📋 GitHub issue #${call.result.number}: "${call.result.title}"\n\n${call.result.body}\n\n📎 ${call.result.html_url}\n\n${nextStepHint}`;
         }
         else if (call.name === 'createPullRequest' && call.result) {
-          return `✅ Created GitHub pull request #${call.result.pr_number}: "${call.arguments.title}"\n📎 ${call.result.url}`;
+          return `✅ Created GitHub pull request #${call.result.pr_number}: "${call.arguments.title}"\n📎 ${call.result.url}\n\n@CodeReviewer Please review this PR when you have a chance.`;
         }
         else if (call.name === 'createCommit' && call.result) {
           // Check if branch was automatically created during commit
           if (call.result.message && call.result.message.includes('Branch') && call.result.message.includes('was created')) {
             const branchName = call.arguments.branch || 'main';
-            return `🔄 Branch \`${branchName}\` was automatically created\n✅ Committed changes: "${call.arguments.message}"`;
+            return `🔄 Branch \`${branchName}\` was automatically created\n✅ Committed changes: "${call.arguments.message}"\n\nNext, create a pull request with createPullRequest()`;
           }
-          return `✅ Created GitHub commit ${call.result.commit_sha?.substring(0, 7) || ''}: "${call.arguments.message}"`;
+          return `✅ Created GitHub commit ${call.result.commit_sha?.substring(0, 7) || ''}: "${call.arguments.message}"\n\nNext, create a pull request with createPullRequest()`;
         }
         else if (call.name === 'createBranch' && call.result) {
-          return `✅ Created GitHub branch \`${call.arguments.name}\` from \`${call.arguments.source || 'main'}\``;
+          return `✅ Created GitHub branch \`${call.arguments.name}\` from \`${call.arguments.source || 'main'}\`\n\nNext, make your code changes and commit them with createCommit()`;
         }
         else if (call.name === 'createReview' && call.result) {
-          return `✅ Created GitHub review on PR #${call.arguments.pull_number} with status: ${call.arguments.event}`;
+          const mentionTarget = call.arguments.event.toLowerCase() === 'approve' ? '@ProjectManager' : '@Developer';
+          const reviewMessage = call.arguments.event.toLowerCase() === 'approve' 
+            ? `${mentionTarget} This PR has been approved and is ready to be merged.` 
+            : `${mentionTarget} Please address the review comments on this PR.`;
+          return `✅ Created GitHub review on PR #${call.arguments.pull_number} with status: ${call.arguments.event}\n\n${reviewMessage}`;
         }
         else if (call.name === 'getRepositoryInfo' && call.result) {
           const repo = call.result.repository;
-          return `📁 GitHub repository info:\n• Name: ${repo.full_name}\n• Description: ${repo.description || 'N/A'}\n• Default branch: ${repo.default_branch}\n• Open issues: ${repo.open_issues_count}\n• URL: ${repo.url}`;
+          const nextStepHint = "Next, use getIssue() to get information about the specific issue you need to implement.";
+          return `📁 GitHub repository info:\n• Name: ${repo.full_name}\n• Description: ${repo.description || 'N/A'}\n• Default branch: ${repo.default_branch}\n• Open issues: ${repo.open_issues_count}\n• URL: ${repo.url}\n\n${nextStepHint}`;
         }
         // Success message for any function with success flag
         else if (call.result && call.result.success) {
@@ -229,6 +257,6 @@ export class AIService {
     }
     
     // In production, add the workflow reminder
-    return results + '\n\n' + reminder;
+    return results;
   }
 } 

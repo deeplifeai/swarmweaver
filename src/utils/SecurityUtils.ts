@@ -37,8 +37,10 @@ export function hashString(input: string): string {
  * @returns True if the token has a valid format
  */
 export function isValidGitHubToken(token: string): boolean {
-  // GitHub tokens are 40 hex characters or start with 'ghp_', 'gho_', or 'ghs_' followed by 36 characters
-  return /^gh[ops]_[A-Za-z0-9_]{36}$/.test(token) || /^[a-f0-9]{40}$/.test(token);
+  // GitHub tokens are 40 hex characters or start with 'ghp_', 'gho_', 'ghs_', or 'github_pat_' followed by characters
+  return /^gh[ops]_[A-Za-z0-9_]{36}$/.test(token) || 
+         /^[a-f0-9]{40}$/.test(token) || 
+         /^github_pat_[A-Za-z0-9_-]+$/.test(token);
 }
 
 /**

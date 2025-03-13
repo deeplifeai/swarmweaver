@@ -25,7 +25,15 @@
     },
     "ignoreDeprecations": "5.0"
   },
-  "include": ["src/services/**/*.ts", "src/services/**/*.js"],
+  "include": [
+    "src/services/**/*.ts", 
+    "src/services/**/*.js", 
+    "src/index.ts",
+    "src/agents/**/*.ts",
+    "src/config/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/types/**/*.ts"
+  ],
   "exclude": [
     "node_modules", 
     "dist", 

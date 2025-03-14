@@ -128,7 +128,11 @@ export class SlackService {
     // Error handler
     this.app.error(async (error) => {
       console.error('Slack app error:', error);
-      eventBus.emit(EventType.ERROR, { source: 'SlackService', error });
+      eventBus.emit(EventType.ERROR, { 
+        source: 'SlackService', 
+        error,
+        message: error.message || 'An error occurred in Slack service'
+      });
     });
   }
   

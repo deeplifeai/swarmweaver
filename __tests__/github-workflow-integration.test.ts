@@ -1,10 +1,10 @@
 // @ts-ignore
 import { jest } from '@jest/globals';
-import { developerAgent } from '@/agents/AgentDefinitions';
-import { AgentOrchestrator } from '@/services/ai/AgentOrchestrator';
-import { AIService } from '@/services/ai/AIService';
-import { SlackService } from '@/services/slack/SlackService';
-import { githubService } from '@/services/github/GitHubService';
+import { developerAgent } from '../src/agents/AgentDefinitions';
+import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
+import { AIService } from '../src/services/ai/AIService';
+import { SlackService } from '../src/services/slack/SlackService';
+import { githubService } from '../src/services/github/GitHubService';
 
 // Define interface for SlackMessage to fix typing issues
 interface SlackMessage {
@@ -15,7 +15,7 @@ interface SlackMessage {
 }
 
 // Mock all dependencies
-jest.mock('@/services/github/GitHubService', () => ({
+jest.mock('../src/services/github/GitHubService', () => ({
   githubService: {
     getRepository: jest.fn(),
     getIssue: jest.fn(),
@@ -26,11 +26,11 @@ jest.mock('@/services/github/GitHubService', () => ({
   }
 }));
 
-jest.mock('@/services/slack/SlackService');
-jest.mock('@/services/ai/AIService');
+jest.mock('../src/services/slack/SlackService');
+jest.mock('../src/services/ai/AIService');
 
 // Create mock event bus
-jest.mock('@/utils/EventBus', () => ({
+jest.mock('../src/utils/EventBus', () => ({
   eventBus: {
     on: jest.fn(),
     emit: jest.fn()
@@ -57,8 +57,27 @@ describe('GitHub Workflow Integration Tests', () => {
     mockAIService.generateAgentResponse = jest.fn();
     mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
 
+    // Create mock services for the required parameters
+    const mockHandoffMediator = { handleAgentHandoff: jest.fn() } as any;
+    const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
+    const mockLoopDetector = { detectLoop: jest.fn(), resetLoopCounter: jest.fn() } as any;
+    const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
+    const mockTokenManager = { 
+      getOptimizedPrompt: jest.fn(), 
+      estimateTokenCount: jest.fn(),
+      chunkWithOverlap: jest.fn()
+    } as any;
+
     // Set up the orchestrator with our mocks
-    orchestrator = new AgentOrchestrator(mockSlackService, mockAIService);
+    orchestrator = new AgentOrchestrator(
+      mockSlackService, 
+      mockAIService,
+      mockHandoffMediator,
+      mockStateManager,
+      mockLoopDetector,
+      mockFunctionRegistry,
+      mockTokenManager
+    );
     
     // Register the developer agent
     orchestrator.registerAgent(developerAgent);

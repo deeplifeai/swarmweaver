@@ -188,10 +188,26 @@ describe('Agent Mention Detection', () => {
     });
     (mockAIService as any).generateAgentResponse = mockGenerateResponse;
     
+    // Create mock services for the required parameters
+    const mockHandoffMediator = { handleAgentHandoff: jest.fn() } as any;
+    const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
+    const mockLoopDetector = { detectLoop: jest.fn(), resetLoopCounter: jest.fn() } as any;
+    const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
+    const mockTokenManager = { 
+      getOptimizedPrompt: jest.fn(), 
+      estimateTokenCount: jest.fn(),
+      chunkWithOverlap: jest.fn()
+    } as any;
+    
     // Create an orchestrator with our mocked services
     const orchestrator = new AgentOrchestrator(
       slackService as any,
-      mockAIService as any
+      mockAIService as any,
+      mockHandoffMediator,
+      mockStateManager,
+      mockLoopDetector,
+      mockFunctionRegistry,
+      mockTokenManager
     );
     
     // Register the Developer agent

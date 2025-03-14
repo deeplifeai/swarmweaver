@@ -1,25 +1,24 @@
 import { jest } from '@jest/globals';
-import { AgentOrchestrator } from '@/services/ai/AgentOrchestrator';
-import { AIService } from '@/services/ai/AIService';
-import { SlackService } from '@/services/slack/SlackService';
-import { GitHubService } from '@/services/github/GitHubService';
-import { developerAgent, projectManagerAgent } from '@/agents/AgentDefinitions';
-import { setGitHubService } from '@/services/github/GitHubFunctions';
+import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
+import { AIService } from '../src/services/ai/AIService';
+import { SlackService } from '../src/services/slack/SlackService';
+import { GitHubService } from '../src/services/github/GitHubService';
+import { developerAgent, projectManagerAgent } from '../src/agents/AgentDefinitions';
+import { setGitHubService } from '../src/services/github/GitHubFunctions';
 
 // Mock dependencies
-jest.mock('@/services/slack/SlackService');
-jest.mock('@/services/ai/AIService');
-jest.mock('@/services/github/GitHubService');
-jest.mock('@/utils/EventBus', () => ({
+jest.mock('../src/services/slack/SlackService');
+jest.mock('../src/services/ai/AIService');
+jest.mock('../src/services/github/GitHubService');
+jest.mock('../src/services/github/GitHubFunctions');
+jest.mock('../src/utils/EventBus', () => ({
   eventBus: {
     on: jest.fn(),
-    emit: jest.fn(),
-    emitAgentMessage: jest.fn()
+    emit: jest.fn()
   },
   EventType: {
-    AGENT_MESSAGE: 'AGENT_MESSAGE',
-    ERROR: 'ERROR',
-    AGENT_MESSAGE_RECEIVED: 'AGENT_MESSAGE_RECEIVED'
+    MESSAGE_RECEIVED: 'MESSAGE_RECEIVED',
+    ERROR: 'ERROR'
   }
 }));
 
@@ -74,8 +73,47 @@ describe('Developer Task Handling Tests', () => {
     // Set the mock GitHub service
     setGitHubService(mockGitHubService);
 
+    // Create additional mock services
+    const mockHandoffMediator = {
+      registerOrchestrator: jest.fn(),
+      handleAgentHandoff: jest.fn(),
+      determineNextAgent: jest.fn().mockImplementation(() => Promise.resolve(undefined)),
+      recordHandoff: jest.fn()
+    };
+
+    const mockStateManager = {
+      updateState: jest.fn(),
+      getState: jest.fn(),
+      getCurrentStage: jest.fn()
+    };
+
+    const mockLoopDetector = {
+      checkForLoop: jest.fn(),
+      recordHandoff: jest.fn()
+    };
+
+    const mockFunctionRegistry = {
+      registerFunction: jest.fn(),
+      getFunctionByName: jest.fn(),
+      getAllFunctions: jest.fn()
+    };
+
+    const mockTokenManager = {
+      trackTokens: jest.fn(),
+      getConversationTokenCount: jest.fn(),
+      pruneConversation: jest.fn()
+    };
+
     // Create the orchestrator with our mocks
-    orchestrator = new AgentOrchestrator(mockSlackService, mockAIService);
+    orchestrator = new AgentOrchestrator(
+      mockSlackService, 
+      mockAIService,
+      mockHandoffMediator as any,
+      mockStateManager as any,
+      mockLoopDetector as any,
+      mockFunctionRegistry as any,
+      mockTokenManager as any
+    );
 
     // Register the agents
     orchestrator.registerAgent(projectManagerAgent);

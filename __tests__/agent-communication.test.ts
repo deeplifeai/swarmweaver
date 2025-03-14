@@ -1,13 +1,13 @@
 import { jest } from '@jest/globals';
-import { developerAgent, teamLeaderAgent } from '@/agents/AgentDefinitions';
-import { AgentOrchestrator } from '@/services/ai/AgentOrchestrator';
-import { AIService } from '@/services/ai/AIService';
-import { SlackService } from '@/services/slack/SlackService';
-import { eventBus, EventType } from '@/utils/EventBus';
+import { developerAgent, teamLeaderAgent } from '../src/agents/AgentDefinitions';
+import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
+import { AIService } from '../src/services/ai/AIService';
+import { SlackService } from '../src/services/slack/SlackService';
+import { eventBus, EventType } from '../src/utils/EventBus';
 
-jest.mock('@/services/slack/SlackService');
-jest.mock('@/services/ai/AIService');
-jest.mock('@/utils/EventBus', () => ({
+jest.mock('../src/services/slack/SlackService');
+jest.mock('../src/services/ai/AIService');
+jest.mock('../src/utils/EventBus', () => ({
   eventBus: {
     on: jest.fn(),
     emit: jest.fn()
@@ -34,8 +34,27 @@ describe('Agent Communication Tests', () => {
     mockAIService.generateAgentResponse = jest.fn();
     mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
 
+    // Create mock services for the required parameters
+    const mockHandoffMediator = { handleAgentHandoff: jest.fn() } as any;
+    const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
+    const mockLoopDetector = { detectLoop: jest.fn(), resetLoopCounter: jest.fn() } as any;
+    const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
+    const mockTokenManager = { 
+      getOptimizedPrompt: jest.fn(), 
+      estimateTokenCount: jest.fn(),
+      chunkWithOverlap: jest.fn()
+    } as any;
+
     // Set up the orchestrator with our mocks
-    orchestrator = new AgentOrchestrator(mockSlackService, mockAIService);
+    orchestrator = new AgentOrchestrator(
+      mockSlackService, 
+      mockAIService,
+      mockHandoffMediator,
+      mockStateManager,
+      mockLoopDetector,
+      mockFunctionRegistry,
+      mockTokenManager
+    );
     
     // Register the agents
     (orchestrator as any).registerAgent(teamLeaderAgent);

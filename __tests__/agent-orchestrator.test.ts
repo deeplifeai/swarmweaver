@@ -1,5 +1,5 @@
 import { jest } from '@jest/globals';
-import { AgentOrchestrator } from '@/services/ai/AgentOrchestrator';
+import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
 
 // Create mock services
 const mockSlackService = {
@@ -11,6 +11,35 @@ const mockAIService = {
   extractFunctionResults: jest.fn()
 };
 
+// Create additional mock services
+const mockHandoffMediator = {
+  registerOrchestrator: jest.fn(),
+  handleAgentHandoff: jest.fn()
+};
+
+const mockStateManager = {
+  updateState: jest.fn(),
+  getState: jest.fn(),
+  getCurrentStage: jest.fn()
+};
+
+const mockLoopDetector = {
+  checkForLoop: jest.fn(),
+  recordHandoff: jest.fn()
+};
+
+const mockFunctionRegistry = {
+  registerFunction: jest.fn(),
+  getFunctionByName: jest.fn(),
+  getAllFunctions: jest.fn()
+};
+
+const mockTokenManager = {
+  trackTokens: jest.fn(),
+  getConversationTokenCount: jest.fn(),
+  pruneConversation: jest.fn()
+};
+
 describe('AgentOrchestrator', () => {
   let orchestrator: AgentOrchestrator;
 
@@ -18,7 +47,12 @@ describe('AgentOrchestrator', () => {
     jest.clearAllMocks();
     orchestrator = new AgentOrchestrator(
       mockSlackService as any,
-      mockAIService as any
+      mockAIService as any,
+      mockHandoffMediator as any,
+      mockStateManager as any,
+      mockLoopDetector as any,
+      mockFunctionRegistry as any,
+      mockTokenManager as any
     );
     
     // Use TypeScript's private property access hack to access private methods for testing

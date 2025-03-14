@@ -143,6 +143,7 @@ export class AIService {
     // Check for common retryable error patterns
     return (
       message.includes('timeout') ||
+      message.includes('timed out') ||
       message.includes('rate limit') ||
       message.includes('too many requests') ||
       message.includes('429') ||

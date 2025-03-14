@@ -1,4 +1,5 @@
 // Global setup for Jest tests
+require("reflect-metadata");
 
 // ES Module export-compatible mock for OpenAI
 jest.mock('openai', () => {

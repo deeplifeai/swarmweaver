@@ -1,14 +1,14 @@
 import { jest } from '@jest/globals';
-import { eventBus, EventType } from '@/utils/EventBus';
-import { AgentRole } from '@/types/agents/Agent';
-import { AgentOrchestrator } from '@/services/ai/AgentOrchestrator';
-import { agents } from '@/agents/AgentDefinitions';
-import { SlackService } from '@/services/slack/SlackService';
+import { eventBus, EventType } from '../src/utils/EventBus';
+import { AgentRole } from '../src/types/agents/Agent';
+import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
+import { agents } from '../src/agents/AgentDefinitions';
+import { SlackService } from '../src/services/slack/SlackService';
 
 // Mock dependencies
-jest.mock('@/services/slack/SlackService');
-jest.mock('@/services/ai/AIService');
-jest.mock('@/utils/EventBus', () => ({
+jest.mock('../src/services/slack/SlackService');
+jest.mock('../src/services/ai/AIService');
+jest.mock('../src/utils/EventBus', () => ({
   eventBus: {
     on: jest.fn(),
     emit: jest.fn(),
@@ -42,8 +42,62 @@ describe('Agent Slack ID Management Tests', () => {
       registerFunction: jest.fn()
     };
 
+    // Create additional mock services
+    const mockHandoffMediator = {
+      registerOrchestrator: jest.fn(),
+      handleAgentHandoff: jest.fn(),
+      agentsByRole: {
+        DEVELOPER: [],
+        CODE_REVIEWER: [],
+        PROJECT_MANAGER: [],
+        QA_TESTER: [],
+        TECHNICAL_WRITER: [],
+        SECURITY_ENGINEER: [],
+        DEVOPS_ENGINEER: []
+      },
+      agents: {},
+      stateManager: {},
+      initializeAgentsByRole: jest.fn(),
+      determineNextAgent: jest.fn().mockImplementation(() => Promise.resolve(undefined)),
+      recordHandoff: jest.fn(),
+      findAgentByMention: jest.fn(),
+      findAgentByKeyword: jest.fn(),
+      getAgentForState: jest.fn()
+    };
+
+    const mockStateManager = {
+      updateState: jest.fn(),
+      getState: jest.fn(),
+      getCurrentStage: jest.fn()
+    };
+
+    const mockLoopDetector = {
+      checkForLoop: jest.fn(),
+      recordHandoff: jest.fn()
+    };
+
+    const mockFunctionRegistry = {
+      registerFunction: jest.fn(),
+      getFunctionByName: jest.fn(),
+      getAllFunctions: jest.fn()
+    };
+
+    const mockTokenManager = {
+      trackTokens: jest.fn(),
+      getConversationTokenCount: jest.fn(),
+      pruneConversation: jest.fn()
+    };
+
     // Create the orchestrator with our mocks
-    orchestrator = new AgentOrchestrator(mockSlackService, mockAIService);
+    orchestrator = new AgentOrchestrator(
+      mockSlackService, 
+      mockAIService,
+      mockHandoffMediator as any,
+      mockStateManager as any,
+      mockLoopDetector as any,
+      mockFunctionRegistry as any,
+      mockTokenManager as any
+    );
   });
 
   describe('Agent registration', () => {

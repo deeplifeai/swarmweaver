@@ -7,7 +7,7 @@ import { HandoffMediator } from '../agents/HandoffMediator';
 import { WorkflowStateManager } from '../state/WorkflowStateManager';
 import { LoopDetector } from '../agents/LoopDetector';
 import { FunctionRegistry } from './FunctionRegistry';
-import { TokenManager } from '@/utils/tokenManager';
+import { TokenManager } from '../../utils/TokenManager';
 import { runWithLangChain } from './LangChainIntegration';
 import { config } from '@/config/config';
 import { ConversationManager } from '../ConversationManager';

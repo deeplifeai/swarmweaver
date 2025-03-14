@@ -103,7 +103,7 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
       
       // Call the OpenAI API
       const response = await this.openai.chat.completions.create({
-        model: config.openai.model,
+        model: config.openai.models.default,
         messages: messages as any,
         tools: tools.length > 0 ? tools : undefined,
         tool_choice: tools.length > 0 ? 'auto' : undefined
@@ -195,13 +195,13 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
           return `❌ Function \`${call.name}\` failed: ${errorMessage}`;
         }
         
-        // Format GitHub function results in a user-friendly way
+        // Format GitHub function results in a user-friendly way with consistent @mentions
         if (call.name === 'createIssue' && call.result) {
           return `✅ Created GitHub issue #${call.result.issue_number}: "${call.arguments.title}"\n📎 ${call.result.url}\n\n@Developer Please implement this issue following the workflow steps.`;
         } 
         else if (call.name === 'getIssue' && call.result) {
           const nextStepHint = "Next, create a branch with createBranch() before making any code changes.";
-          return `📋 GitHub issue #${call.result.number}: "${call.result.title}"\n\n${call.result.body}\n\n📎 ${call.result.html_url}\n\n${nextStepHint}`;
+          return `📋 GitHub issue #${call.result.number}: "${call.result.title}"\n\n${call.result.body}\n\n📎 ${call.result.html_url}\n\n@Developer ${nextStepHint}`;
         }
         else if (call.name === 'createPullRequest' && call.result) {
           return `✅ Created GitHub pull request #${call.result.pr_number}: "${call.arguments.title}"\n📎 ${call.result.url}\n\n@CodeReviewer Please review this PR when you have a chance.`;
@@ -210,12 +210,12 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
           // Check if branch was automatically created during commit
           if (call.result.message && call.result.message.includes('Branch') && call.result.message.includes('was created')) {
             const branchName = call.arguments.branch || 'main';
-            return `🔄 Branch \`${branchName}\` was automatically created\n✅ Committed changes: "${call.arguments.message}"\n\nNext, create a pull request with createPullRequest()`;
+            return `🔄 Branch \`${branchName}\` was automatically created\n✅ Committed changes: "${call.arguments.message}"\n\n@Developer Next, create a pull request with createPullRequest()`;
           }
-          return `✅ Created GitHub commit ${call.result.commit_sha?.substring(0, 7) || ''}: "${call.arguments.message}"\n\nNext, create a pull request with createPullRequest()`;
+          return `✅ Created GitHub commit ${call.result.commit_sha?.substring(0, 7) || ''}: "${call.arguments.message}"\n\n@Developer Next, create a pull request with createPullRequest()`;
         }
         else if (call.name === 'createBranch' && call.result) {
-          return `✅ Created GitHub branch \`${call.arguments.name}\` from \`${call.arguments.source || 'main'}\`\n\nNext, make your code changes and commit them with createCommit()`;
+          return `✅ Created GitHub branch \`${call.arguments.name}\` from \`${call.arguments.source || 'main'}\`\n\n@Developer Now implement your code changes and commit them with createCommit()`;
         }
         else if (call.name === 'createReview' && call.result) {
           const mentionTarget = call.arguments.event.toLowerCase() === 'approve' ? '@ProjectManager' : '@Developer';
@@ -227,7 +227,7 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
         else if (call.name === 'getRepositoryInfo' && call.result) {
           const repo = call.result.repository;
           const nextStepHint = "Next, use getIssue() to get information about the specific issue you need to implement.";
-          return `📁 GitHub repository info:\n• Name: ${repo.full_name}\n• Description: ${repo.description || 'N/A'}\n• Default branch: ${repo.default_branch}\n• Open issues: ${repo.open_issues_count}\n• URL: ${repo.url}\n\n${nextStepHint}`;
+          return `📁 GitHub repository info:\n• Name: ${repo.full_name}\n• Description: ${repo.description || 'N/A'}\n• Default branch: ${repo.default_branch}\n• Open issues: ${repo.open_issues_count}\n• URL: ${repo.url}\n\n@Developer ${nextStepHint}`;
         }
         // Success message for any function with success flag
         else if (call.result && call.result.success) {
@@ -256,7 +256,7 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
       return results;
     }
     
-    // In production, add the workflow reminder
-    return results;
+    // In production, add the workflow reminder with reflection protocol
+    return results + "\n\n" + reminder + "\n\nREFLECTION PROTOCOL: After completing the current workflow step, reflect on what you've accomplished and what the next step should be. Use explicit @mentions to indicate which agent should take the next action.";
   }
 } 

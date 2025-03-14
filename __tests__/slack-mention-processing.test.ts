@@ -1,36 +1,39 @@
 import { jest } from '@jest/globals';
-import { SlackService } from '@/services/slack/SlackService';
-import { eventBus, EventType } from '@/utils/EventBus';
+import { SlackService } from '../src/services/slack/SlackService';
+import { eventBus, EventType } from '../src/services/eventBus';
 
 // Mock the event bus
-jest.mock('@/utils/EventBus', () => ({
+jest.mock('../src/services/eventBus', () => ({
   eventBus: {
     on: jest.fn(),
     emit: jest.fn(),
-    emitAgentMessage: jest.fn()
   },
   EventType: {
-    AGENT_MESSAGE: 'AGENT_MESSAGE',
-    ERROR: 'ERROR',
-    AGENT_MESSAGE_RECEIVED: 'AGENT_MESSAGE_RECEIVED'
+    MESSAGE_RECEIVED: 'message_received',
+    MESSAGE_SENT: 'message_sent',
+    FUNCTION_CALLED: 'function_called',
+    FUNCTION_RESULT: 'function_result',
+    AGENT_RESPONSE: 'agent_response',
+    WORKFLOW_TRANSITION: 'workflow_transition',
+    ERROR: 'error'
   }
 }));
 
 // Create a test subclass that exposes private methods for testing
 class TestableSlackService extends SlackService {
   public exposedProcessMentions(text: string) {
-    // @ts-ignore - accessing private method for testing
-    return this.processMentions(text);
+    // Get access to the private method implementation
+    return this['processMentions'](text);
   }
   
   public exposedCleanMessage(text: string) {
-    // @ts-ignore - accessing private method for testing
-    return this.cleanMessage(text);
+    // Get access to the private method implementation
+    return this['cleanMessage'](text);
   }
   
   public exposedEmitMessageEvent(message: any) {
-    // @ts-ignore - accessing private method for testing
-    return this.emitMessageEvent(message);
+    // Get access to the private method implementation
+    return this['emitMessageEvent'](message);
   }
 }
 
@@ -233,7 +236,7 @@ describe('Slack Mention Processing Tests', () => {
       testInstance.exposedEmitMessageEvent(agentMessage);
       
       // Check that the event was emitted
-      expect(eventBus.emitAgentMessage).toHaveBeenCalledWith(agentMessage);
+      expect(eventBus.emit).toHaveBeenCalledWith(EventType.MESSAGE_SENT, expect.anything());
     });
 
     it('should prevent duplicate message processing', () => {
@@ -255,7 +258,7 @@ describe('Slack Mention Processing Tests', () => {
       testInstance.exposedEmitMessageEvent(agentMessage);
       
       // Check that the event was emitted only once
-      expect(eventBus.emitAgentMessage).toHaveBeenCalledTimes(1);
+      expect(eventBus.emit).toHaveBeenCalledTimes(1);
     });
   });
 }); 

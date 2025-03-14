@@ -4,7 +4,7 @@ import { AgentOrchestrator } from './services/ai/AgentOrchestrator';
 import { GitHubService } from './services/github/GitHubService';
 import { agents } from './agents/AgentDefinitions';
 import { githubFunctions } from './services/github/GitHubFunctions';
-import { config } from './config/config';
+import { config, environment } from './config/config';
 import { 
   isValidOpenAIKey, 
   isValidGitHubToken, 
@@ -71,10 +71,10 @@ function validateConfiguration() {
 // Log configuration (with masked tokens for security)
 function logConfiguration() {
   console.log('📊 Configuration:');
-  console.log(`  Environment: ${config.environment}`);
+  console.log(`  Environment: ${environment}`);
   console.log(`  Port: ${config.port}`);
   console.log(`  OpenAI API Key: ${maskToken(config.openai.apiKey)}`);
-  console.log(`  OpenAI Model: ${config.openai.model}`);
+  console.log(`  OpenAI Model: ${config.openai.models.default}`);
   console.log(`  GitHub Token: ${maskToken(config.github.token)}`);
   console.log(`  GitHub Repository: ${config.github.repository}`);
   console.log(`  Slack Bot Token: ${maskToken(config.slack.botToken)}`);
@@ -92,6 +92,8 @@ async function startApplication() {
   try {
     // Log masked configuration
     logConfiguration();
+    
+    console.log(`\n===== ENVIRONMENT: ${environment} =====`);
     
     // Initialize services
     console.log('⚙️ Initializing services...');

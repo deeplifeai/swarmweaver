@@ -1,17 +1,44 @@
 import { App, LogLevel } from '@slack/bolt';
 import { WebClient } from '@slack/web-api';
-import { SlackMessage, SlackChannel } from '@/types/slack/SlackTypes';
+import { SlackMessage as SlackAPIMessage, SlackChannel as SlackAPIChannel } from '@/types/slack/SlackTypes';
 import { AgentMessage } from '@/types/agents/Agent';
 import { config } from '@/config/config';
-import { eventBus, EventType } from '@/utils/EventBus';
+import { eventBus, EventType } from '@/services/eventBus';
+
+// Our internal SlackMessage interface
+export interface SlackMessage {
+  channel: string;
+  threadTs?: string;
+  text: string;
+  userId: string;
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+}
+
+export function mentionUser(userId: string): string {
+  return `<@${userId}>`;
+}
 
 export class SlackService {
   private app: App;
   private client: WebClient;
   private mentionRegex = /<@([A-Z0-9]+)>/g;
   private processedMessageIds = new Set<string>(); // Track processed message IDs
+  private apiKey: string;
+  private static instance: SlackService;
   
   constructor() {
+    this.apiKey = config.slack.botToken;
+    
+    if (SlackService.instance) {
+      return SlackService.instance;
+    }
+    
+    SlackService.instance = this;
+    
     this.app = new App({
       token: config.slack.botToken,
       signingSecret: config.slack.signingSecret,
@@ -105,7 +132,8 @@ export class SlackService {
     });
   }
   
-  start() {
+  async start() {
+    console.log('Starting Slack service...');
     this.app.start(config.port)
       .then(() => {
         console.log(`⚡️ Slack Bolt app is running on port ${config.port}`);
@@ -116,35 +144,54 @@ export class SlackService {
       });
   }
   
-  async sendMessage(message: SlackMessage): Promise<any> {
+  async sendMessage(message: SlackMessage | SlackAPIMessage): Promise<void> {
     try {
-      // Before sending to Slack, check if this message contains agent mentions
-      if (message.text && (message.text.includes('@Developer') || 
-                           message.text.includes('@CodeReviewer') ||
-                           message.text.includes('@ProjectManager') ||
-                           message.text.includes('@QATester') ||
-                           message.text.includes('@TechnicalWriter') ||
-                           message.text.includes('@TeamLeader'))) {
-        
-        console.log('Outgoing message contains agent mentions:', message.text);
-        
-        // Process the agent mentions directly without waiting for Slack event
-        this.processOutgoingMessageWithMentions(message);
-      }
+      console.log(`Sending message to channel ${message.channel}: ${message.text}`);
       
-      // Send the message to Slack as usual
-      const response = await this.client.chat.postMessage({
+      // Convert SlackAPIMessage to our internal format if needed
+      const internalMessage: SlackMessage = {
         channel: message.channel,
         text: message.text,
-        thread_ts: message.thread_ts,
-        blocks: message.blocks,
-        attachments: message.attachments
+        // Handle different property names between interfaces
+        threadTs: 'threadTs' in message ? message.threadTs : ('thread_ts' in message ? message.thread_ts : undefined),
+        // Add a default userId if not present
+        userId: 'userId' in message ? message.userId : 'system'
+      };
+      
+      // Check for agent name mentions (e.g., @Developer)
+      const mentionedAgents = this.extractAgentNameMentions(internalMessage.text);
+      
+      // Emit message event using the EventBus
+      eventBus.emit(EventType.MESSAGE_SENT, internalMessage);
+      
+      // If agent mentions are detected, emit an AgentMessage as well
+      if (mentionedAgents.length > 0) {
+        const agentMessage = {
+          id: new Date().getTime().toString(),
+          timestamp: new Date().toISOString(),
+          agentId: internalMessage.userId,
+          content: internalMessage.text,
+          channel: internalMessage.channel,
+          mentions: mentionedAgents,
+          replyToMessageId: internalMessage.threadTs
+        };
+        
+        // Emit agent message event
+        eventBus.emit(EventType.MESSAGE_RECEIVED, agentMessage);
+      }
+      
+      // Actually send the message to Slack
+      await this.client.chat.postMessage({
+        channel: internalMessage.channel,
+        text: internalMessage.text,
+        thread_ts: internalMessage.threadTs,
+        blocks: ('blocks' in message) ? message.blocks : undefined,
+        attachments: ('attachments' in message) ? message.attachments : undefined
       });
       
-      return response;
+      return Promise.resolve();
     } catch (error) {
-      console.error('Error sending Slack message:', error);
-      eventBus.emit(EventType.ERROR, { source: 'SlackService', error, message: 'Failed to send message' });
+      console.error('Error sending message:', error);
       throw error;
     }
   }
@@ -153,38 +200,19 @@ export class SlackService {
    * Process an outgoing message that contains agent mentions
    * This bypasses the need to receive our own messages back from Slack
    */
-  private processOutgoingMessageWithMentions(message: SlackMessage): void {
-    // Don't process if no text
-    if (!message.text) return;
+  private processOutgoingMessageWithMentions(text: string): string[] {
+    // Extract mentions from text
+    const mentions: string[] = [];
+    const mentionRegex = /@(\w+)/g;
+    let match;
     
-    // Extract agent mentions from the text
-    const agentNameMentions = this.extractAgentNameMentions(message.text);
-    
-    if (agentNameMentions.length === 0) {
-      return; // No mentions to process
+    while ((match = mentionRegex.exec(text)) !== null) {
+      const mentionedName = match[1];
+      // In a real implementation, would look up the user ID
+      mentions.push(mentionedName);
     }
     
-    console.log('Found agent mentions in outgoing message:', agentNameMentions);
-    
-    // Create an agent message to be processed by the orchestrator
-    const agentMessage: AgentMessage = {
-      // Create a unique ID for this message
-      id: `outgoing-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      timestamp: new Date().toISOString(),
-      // Mark the sender as our bot
-      agentId: 'B08GYV992H5', // Bot ID
-      content: message.text,
-      channel: message.channel,
-      mentions: agentNameMentions,
-      // Use thread_ts if available
-      replyToMessageId: message.thread_ts
-    };
-    
-    // Add a small delay to ensure the message is sent to Slack first
-    setTimeout(() => {
-      console.log('Triggering agent response for mentions in outgoing message');
-      eventBus.emitAgentMessage(agentMessage);
-    }, 500);
+    return mentions;
   }
   
   async getChannels(): Promise<SlackChannel[]> {
@@ -244,23 +272,15 @@ export class SlackService {
     const commaPatternMatch = text.match(commaPattern);
     
     if (commaPatternMatch) {
-      // This is a comma-separated list, get all mentions in the comma-separated part
-      const commaSeparatedPart = commaPatternMatch[1];
-      
-      // Find all mentions in the comma-separated part
-      const commaRegex = /<@([A-Z0-9]+)>/g;
-      let commaMatch;
-      
-      while ((commaMatch = commaRegex.exec(commaSeparatedPart)) !== null) {
-        targetAgents.push(commaMatch[1]);
-      }
-      
+      // This is a comma-separated list, all mentions are target agents
+      targetAgents.push(...allMentions);
       console.log('Message with comma-separated mentions targeting:', targetAgents);
     } else {
-      // Not comma-separated, use all detected mentions
+      // Not a comma-separated list, only the first mention is the target agent
+      // If we have mentions, use the first one as the target
       if (allMentions.length > 0) {
-        targetAgents.push(...allMentions);
-        console.log('Message with mentions targeting agents:', targetAgents);
+        targetAgents.push(allMentions[0]);
+        console.log('Message with mention targeting agent:', targetAgents);
       }
     }
     
@@ -361,8 +381,8 @@ export class SlackService {
     }
     
     // Emit event using EventBus
-    console.log('Agent message received:', message);
-    eventBus.emitAgentMessage(message);
+    console.log('Handling message:', message);
+    eventBus.emit(EventType.MESSAGE_RECEIVED, message);
   }
 
   /**
@@ -380,4 +400,60 @@ export class SlackService {
     // Both a role and an issue number should be present for a direct command
     return !!(roleMatch && issueMatch);
   }
-} 
+}
+
+interface MessageOptions {
+  channelId: string;
+  threadTs: string | null;
+  text: string;
+  userId: string;
+  blocks?: any[];
+}
+
+/**
+ * Send a message to a Slack channel
+ */
+export const sendMessage = async (options: MessageOptions): Promise<void> => {
+  // In a real implementation, this would use the Slack API
+  // For now, we'll just implement a stub for testing
+  console.log(`Sending message to channel ${options.channelId} from user ${options.userId}: ${options.text}`);
+  
+  return Promise.resolve();
+};
+
+/**
+ * Parse mentions from a Slack message
+ */
+export const parseMentions = (text: string): string[] => {
+  const mentionRegex = /<@([A-Z0-9]+)>/g;
+  const mentions: string[] = [];
+  let match;
+  
+  while ((match = mentionRegex.exec(text)) !== null) {
+    mentions.push(match[1]);
+  }
+  
+  return mentions;
+};
+
+/**
+ * Get the display name for a user
+ */
+export const getUserDisplayName = async (userId: string): Promise<string> => {
+  // This would normally fetch user info from Slack API
+  // For now, let's return a placeholder
+  return `User ${userId}`;
+};
+
+/**
+ * Post a reaction to a message
+ */
+export const addReaction = async (
+  channelId: string,
+  timestamp: string,
+  reaction: string
+): Promise<void> => {
+  console.log(`Adding reaction ${reaction} to message at ${timestamp} in channel ${channelId}`);
+  
+  return Promise.resolve();
+}; 

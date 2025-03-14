@@ -27,7 +27,10 @@ jest.mock('@/config/config', () => ({
   config: {
     openai: {
       apiKey: 'mock-api-key',
-      model: 'gpt-4o'
+      models: {
+        default: 'gpt-4o',
+        assistant: 'gpt-4o'
+      }
     }
   }
 }));

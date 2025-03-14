@@ -4,14 +4,126 @@ import { AgentFunction } from '@/types/agents/Agent';
 import { config } from '@/config/config';
 import { eventBus, EventType } from '@/utils/EventBus';
 
-// Create a workflow state to track function calls
-const workflowState = {
-  repositoryInfo: null,
-  getRepositoryInfoCalled: false,
-  currentIssueNumber: null,
-  currentBranch: null,
-  autoProgressWorkflow: true
-};
+// Add a DEBUG_WORKFLOW constant for controlling debugging output
+const DEBUG_WORKFLOW = process.env.DEBUG_WORKFLOW === 'true';
+
+// Create a WorkflowMemory class for robust workflow state management
+class WorkflowMemory {
+  private state: {
+    repositoryInfo: any;
+    getRepositoryInfoCalled: boolean;
+    currentIssueNumber: number | null;
+    currentBranch: string | null;
+    autoProgressWorkflow: boolean;
+  };
+  private conversationHistory: Array<{
+    role: string;
+    content: string;
+    agentId: string;
+    timestamp: Date;
+  }>;
+  private agentTransitions: Array<{
+    from: string;
+    to: string;
+    reason: string;
+    timestamp: Date;
+  }>;
+
+  constructor() {
+    this.state = {
+      repositoryInfo: null,
+      getRepositoryInfoCalled: false,
+      currentIssueNumber: null,
+      currentBranch: null,
+      autoProgressWorkflow: true
+    };
+    this.conversationHistory = [];
+    this.agentTransitions = [];
+  }
+
+  updateState(updates: Partial<typeof this.state>) {
+    this.state = { ...this.state, ...updates };
+    this.traceWorkflow('stateUpdate', this.state);
+  }
+
+  addMessage(role: string, content: string, agentId: string) {
+    const message = { role, content, agentId, timestamp: new Date() };
+    this.conversationHistory.push(message);
+    this.traceWorkflow('messageAdded', message);
+  }
+
+  recordAgentTransition(fromAgentId: string, toAgentId: string, reason: string) {
+    const transition = { from: fromAgentId, to: toAgentId, reason, timestamp: new Date() };
+    this.agentTransitions.push(transition);
+    this.traceWorkflow('agentTransition', transition);
+  }
+
+  getState() {
+    return this.state;
+  }
+
+  getContextForAgent(agentId: string) {
+    return {
+      state: this.state,
+      recentMessages: this.conversationHistory.slice(-5),
+      lastTransition: this.agentTransitions.length > 0 
+        ? this.agentTransitions[this.agentTransitions.length - 1] 
+        : null
+    };
+  }
+
+  // Getters for backward compatibility
+  get repositoryInfo() {
+    return this.state.repositoryInfo;
+  }
+
+  set repositoryInfo(value) {
+    this.updateState({ repositoryInfo: value });
+  }
+
+  get getRepositoryInfoCalled() {
+    return this.state.getRepositoryInfoCalled;
+  }
+
+  set getRepositoryInfoCalled(value) {
+    this.updateState({ getRepositoryInfoCalled: value });
+  }
+
+  get currentIssueNumber() {
+    return this.state.currentIssueNumber;
+  }
+
+  set currentIssueNumber(value) {
+    this.updateState({ currentIssueNumber: value });
+  }
+
+  get currentBranch() {
+    return this.state.currentBranch;
+  }
+
+  set currentBranch(value) {
+    this.updateState({ currentBranch: value });
+  }
+
+  get autoProgressWorkflow() {
+    return this.state.autoProgressWorkflow;
+  }
+
+  set autoProgressWorkflow(value) {
+    this.updateState({ autoProgressWorkflow: value });
+  }
+
+  // Add tracing support
+  private traceWorkflow(stage: string, data: any) {
+    if (!DEBUG_WORKFLOW) return;
+    
+    console.log(`[WORKFLOW TRACE] ${new Date().toISOString()} | Stage: ${stage}`);
+    console.log(JSON.stringify(data, null, 2));
+  }
+}
+
+// Replace the workflowState object with the WorkflowMemory class
+const workflowState = new WorkflowMemory();
 
 // Mock issue data for issue #3 as a fallback
 const mockIssue3 = {
@@ -224,113 +336,15 @@ You MUST follow this exact workflow:
         pr_number: result.number,
         url: result.html_url,
         message: `Pull request #${result.number} created successfully`,
-        workflow_hint: `PR has been created! Now you should await review from another agent or use createReview() to review the PR manually.`
+        workflow_hint: `PR has been created! Now you should hand over to CodeReviewer by mentioning them with @CodeReviewer to review this PR.`
       };
 
-      // Auto-progress the workflow if enabled - trigger review and completion
+      // Update the message to explicitly tell the Developer to hand off to CodeReviewer
       if (workflowState.autoProgressWorkflow && workflowState.currentIssueNumber) {
         console.log(`Auto-progressing workflow to review the pull request for issue #${workflowState.currentIssueNumber}`);
 
-        try {
-          // Simulate a message back to the channel that implementation is complete
-          const completionMessage = `
-✅ *Implementation Complete!*
-
-I've finished implementing the solution for issue #${workflowState.currentIssueNumber}. 
-Pull request #${result.number} is now ready for review.
-
-The PR contains the following changes:
-- Full implementation of the requested functionality
-- Documentation and examples
-- Appropriate error handling
-
-You can view the PR here: ${result.html_url}
-
-@CodeReviewer Could you please review my implementation?`;
-
-          // Emit a completion message to be sent to Slack
-          try {
-            // Use the application's event bus
-            eventBus.emit(EventType.AGENT_MESSAGE, {
-              agentId: agentId,
-              message: completionMessage,
-              mentions: ['CodeReviewer'] // Mention the code reviewer agent
-            });
-            
-            // Log the event for debugging
-            console.log(`[EVENT] Agent ${agentId} emitted completion message with CodeReviewer mention`);
-          } catch (emitError) {
-            console.error('Error emitting completion message:', emitError);
-            // Fallback: Just log the message that would be sent
-            console.log(`[AGENT MESSAGE] ${agentId} would send: ${completionMessage}`);
-          }
-
-          // Now automatically trigger a code review
-          setTimeout(async () => {
-            try {
-              // Auto-review the PR (could be from a different agent in reality)
-              const reviewResult = await createReviewFunction.handler({
-                pull_number: result.number,
-                body: `I've reviewed the changes for issue #${workflowState.currentIssueNumber} and they look good! The code is well-structured, documented, and follows our coding standards.`,
-                event: 'APPROVE',
-                comments: []
-              }, 'CodeReviewer'); // Using CodeReviewer as the agent ID
-
-              if (reviewResult.success) {
-                console.log(`Auto-review successful: PR #${result.number} approved`);
-
-                // Now merge the PR
-                try {
-                  const mergeResult = await githubService.mergePullRequest(result.number, {
-                    commit_title: `Merge pull request #${result.number}: ${params.title}`,
-                    commit_message: `Resolves issue #${workflowState.currentIssueNumber}`,
-                    merge_method: 'squash'
-                  });
-
-                  if (mergeResult) {
-                    // Close the issue
-                    try {
-                      await githubService.closeIssue(workflowState.currentIssueNumber);
-                      
-                      // Emit a final completion message
-                      const finalMessage = `
-🎉 *Task Complete!*
-
-The PR has been approved and merged. Issue #${workflowState.currentIssueNumber} is now resolved and closed.
-                      
-Thank you for the smooth collaboration!`;
-
-                      // Emit a final completion message
-                      try {
-                        // Use the application's event bus
-                        eventBus.emit(EventType.AGENT_MESSAGE, {
-                          agentId: 'CodeReviewer',
-                          message: finalMessage,
-                          mentions: []
-                        });
-                        
-                        // Log the event for debugging
-                        console.log(`[EVENT] CodeReviewer emitted task completion message`);
-                      } catch (emitError) {
-                        console.error('Error emitting completion message:', emitError);
-                        // Fallback: Just log the message that would be sent
-                        console.log(`[AGENT MESSAGE] CodeReviewer would send: ${finalMessage}`);
-                      }
-                    } catch (closeError) {
-                      console.error(`Error closing issue #${workflowState.currentIssueNumber}:`, closeError);
-                    }
-                  }
-                } catch (mergeError) {
-                  console.error(`Error merging PR #${result.number}:`, mergeError);
-                }
-              }
-            } catch (reviewError) {
-              console.error(`Error during auto-review of PR #${result.number}:`, reviewError);
-            }
-          }, 2000); // Small delay to simulate natural workflow timing
-        } catch (progressError) {
-          console.error(`Error during workflow progression after PR creation:`, progressError);
-        }
+        // Update the hint to emphasize the handoff to CodeReviewer
+        response.workflow_hint = `⚠️ IMPORTANT: Your PR is created! You MUST now hand off to the CodeReviewer by mentioning them with @CodeReviewer in your next message. Do not create another PR.`;
       }
       
       return response;

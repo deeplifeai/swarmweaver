@@ -38,13 +38,6 @@ class TestableSlackService extends SlackService {
 }
 
 describe('Slack Mention Processing Tests', () => {
-  // Create a spy for methods we want to track
-  const slackServiceSpy = {
-    exposedProcessMentions: jest.fn(),
-    exposedCleanMessage: jest.fn(),
-    exposedEmitMessageEvent: jest.fn()
-  };
-
   // Create a spy for the Slack app and client
   const mockApp = {
     message: jest.fn(),
@@ -80,13 +73,7 @@ describe('Slack Mention Processing Tests', () => {
       writable: true
     });
     
-    // Replace the exposed methods with spies for testing
-    slackService.exposedProcessMentions = slackServiceSpy.exposedProcessMentions as unknown as (text: string) => { targetAgents: string[]; allMentions: string[]; };
-    slackService.exposedCleanMessage = slackServiceSpy.exposedCleanMessage as unknown as (text: string) => string;
-    slackService.exposedEmitMessageEvent = slackServiceSpy.exposedEmitMessageEvent as unknown as (message: any) => void;
-    
     // Initialize the SlackService to trigger the registration of event handlers
-    // This calls the constructor which sets up event listeners
     // Call the initEventListeners method if it exists
     if (typeof (slackService as any).initEventListeners === 'function') {
       (slackService as any).initEventListeners();
@@ -95,11 +82,8 @@ describe('Slack Mention Processing Tests', () => {
 
   describe('processMentions method', () => {
     it('should correctly extract single mentions', () => {
-      // Create a fresh instance to test the real implementation
-      const testInstance = new TestableSlackService();
-      
-      // Call the exposed method
-      const result = testInstance.exposedProcessMentions('<@U08GYV9AU9M> PROJECT_MANAGER help me');
+      // Call the exposed method directly on our instance
+      const result = slackService.exposedProcessMentions('<@U08GYV9AU9M> PROJECT_MANAGER help me');
       
       // Check that mentions were correctly processed
       expect(result).toEqual({
@@ -109,11 +93,8 @@ describe('Slack Mention Processing Tests', () => {
     });
 
     it('should correctly extract comma-separated mentions', () => {
-      // Create a fresh instance to test the real implementation
-      const testInstance = new TestableSlackService();
-      
-      // Call the exposed method
-      const result = testInstance.exposedProcessMentions('<@U08GYV9AU9M>, <@DEV001> I need both of you to help');
+      // Call the exposed method directly on our instance
+      const result = slackService.exposedProcessMentions('<@U08GYV9AU9M>, <@DEV001> I need both of you to help');
       
       // Check that both mentions were included as target agents
       expect(result).toEqual({
@@ -124,15 +105,14 @@ describe('Slack Mention Processing Tests', () => {
   });
 
   describe('message event handling', () => {
+    beforeEach(() => {
+      // Reset the eventBus.emit mock before each test
+      (eventBus.emit as jest.Mock).mockClear();
+      // Reset the processedMessageIds set to ensure a clean state for each test
+      (slackService as any).processedMessageIds = new Set();
+    });
+    
     it('should process messages with mentions correctly', () => {
-      // Set up mocks for the exposed methods
-      slackServiceSpy.exposedProcessMentions.mockReturnValue({
-        targetAgents: ['U08GYV9AU9M'],
-        allMentions: ['U08GYV9AU9M']
-      });
-      
-      slackServiceSpy.exposedCleanMessage.mockReturnValue('@user PROJECT_MANAGER help me');
-      
       // Create a mock message
       const mockMessage = {
         ts: '123456.789',
@@ -141,87 +121,96 @@ describe('Slack Mention Processing Tests', () => {
         channel: 'C123'
       };
       
-      // Directly call the processing methods with our test data
-      // This is simulating what would happen in the message handler
-      const mentionResult = slackServiceSpy.exposedProcessMentions(mockMessage.text) as { targetAgents: string[]; allMentions: string[] };
-      const cleanedContent = slackServiceSpy.exposedCleanMessage(mockMessage.text);
+      // Get the result of processMentions for testing
+      const mentionResult = slackService.exposedProcessMentions(mockMessage.text);
+      const cleanedContent = slackService.exposedCleanMessage(mockMessage.text);
       
+      // Create an agent message to pass to emitMessageEvent
       const agentMessage = {
         id: mockMessage.ts,
-        timestamp: expect.any(String),
+        timestamp: new Date().toISOString(),
         agentId: mockMessage.user,
         content: cleanedContent,
         channel: mockMessage.channel,
         mentions: mentionResult.targetAgents
       };
       
-      slackServiceSpy.exposedEmitMessageEvent(agentMessage);
+      // Call emitMessageEvent with our agent message
+      slackService.exposedEmitMessageEvent(agentMessage);
       
-      // Check that exposedProcessMentions was called with the message text
-      expect(slackServiceSpy.exposedProcessMentions).toHaveBeenCalledWith(mockMessage.text);
-      
-      // Check that exposedEmitMessageEvent was called with the correct agent message
-      expect(slackServiceSpy.exposedEmitMessageEvent).toHaveBeenCalledWith(expect.objectContaining({
-        id: '123456.789',
-        agentId: 'U12345USER',
-        content: '@user PROJECT_MANAGER help me',
-        channel: 'C123',
-        mentions: ['U08GYV9AU9M']
-      }));
+      // Check that eventBus.emit was called with MESSAGE_RECEIVED and the agent message
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        EventType.MESSAGE_RECEIVED,
+        expect.objectContaining({
+          id: '123456.789',
+          agentId: 'U12345USER',
+          content: expect.any(String),
+          channel: 'C123',
+          mentions: ['U08GYV9AU9M']
+        })
+      );
     });
 
-    it('should handle app_mention events correctly', () => {
-      // Set up mocks for the exposed methods
-      slackServiceSpy.exposedProcessMentions.mockReturnValue({
-        targetAgents: ['U08GYV9AU9M'],
-        allMentions: ['U08GYV9AU9M']
-      });
-      
-      slackServiceSpy.exposedCleanMessage.mockReturnValue('@user PROJECT_MANAGER help me');
-      
+    it('should handle app_mention events correctly', async () => {
       // Create a mock app_mention event
       const mockEvent = {
-        ts: '123456.789',
+        type: 'app_mention',
         user: 'U12345USER',
-        text: '<@U08GYV9AU9M> PROJECT_MANAGER help me',
-        channel: 'C123'
-      };
-      
-      // Directly call the processing methods with our test data
-      // This is simulating what would happen in the app_mention handler
-      const mentionResult = slackServiceSpy.exposedProcessMentions(mockEvent.text) as { targetAgents: string[]; allMentions: string[] };
-      const cleanedContent = slackServiceSpy.exposedCleanMessage(mockEvent.text);
-      
-      const agentMessage = {
-        id: mockEvent.ts,
-        timestamp: expect.any(String),
-        agentId: mockEvent.user,
-        content: cleanedContent,
-        channel: mockEvent.channel,
-        mentions: mentionResult.targetAgents
-      };
-      
-      slackServiceSpy.exposedEmitMessageEvent(agentMessage);
-      
-      // Check that exposedProcessMentions was called with the event text
-      expect(slackServiceSpy.exposedProcessMentions).toHaveBeenCalledWith(mockEvent.text);
-      
-      // Check that exposedEmitMessageEvent was called with the correct agent message
-      expect(slackServiceSpy.exposedEmitMessageEvent).toHaveBeenCalledWith(expect.objectContaining({
-        id: '123456.789',
-        agentId: 'U12345USER',
-        content: '@user PROJECT_MANAGER help me',
+        text: '<@B12345BOT> PROJECT_MANAGER help me',
+        ts: '123456.789',
         channel: 'C123',
-        mentions: ['U08GYV9AU9M']
-      }));
+        event_ts: '123456.789'
+      };
+
+      // Mock the processMentions method to return a specific result
+      const mockMentionResult = {
+        targetAgents: ['U08GYV9AU9M'],
+        cleanedText: 'PROJECT_MANAGER help me'
+      };
+      
+      (slackService as any).processMentions = jest.fn().mockReturnValue(mockMentionResult);
+      (slackService as any).cleanMessage = jest.fn().mockReturnValue('PROJECT_MANAGER help me');
+      
+      // Create a mock event handler function
+      const mockEventHandler = jest.fn();
+      
+      // Simulate the app_mention event by directly calling the event handler
+      // that would be registered with app.event('app_mention', handler)
+      const eventHandler = (slackService as any).app.event.mock.calls.find(
+        call => call[0] === 'app_mention'
+      )?.[1];
+      
+      if (eventHandler) {
+        // Call the event handler with the mock event
+        await eventHandler({ event: mockEvent, say: mockEventHandler });
+        
+        // Check that eventBus.emit was called with the correct agent message
+        expect(eventBus.emit).toHaveBeenCalledWith(
+          EventType.MESSAGE_RECEIVED,
+          expect.objectContaining({
+            id: '123456.789',
+            agentId: 'U12345USER',
+            content: 'PROJECT_MANAGER help me',
+            channel: 'C123',
+            mentions: ['U08GYV9AU9M']
+          })
+        );
+      } else {
+        fail('No event handler registered for app_mention events');
+      }
     });
   });
 
   describe('emitMessageEvent method', () => {
-    it('should emit events through the event bus', () => {
-      // Create a fresh instance to test the real implementation
-      const testInstance = new TestableSlackService();
+    beforeEach(() => {
+      // Reset the eventBus.emit mock before each test
+      (eventBus.emit as jest.Mock).mockClear();
       
+      // Reset the processedMessageIds set to ensure clean state for each test
+      (slackService as any).processedMessageIds = new Set();
+    });
+    
+    it('should emit events through the event bus', () => {
       // Create a mock agent message
       const agentMessage = {
         id: '123456.789',
@@ -233,16 +222,13 @@ describe('Slack Mention Processing Tests', () => {
       };
       
       // Call the exposed method
-      testInstance.exposedEmitMessageEvent(agentMessage);
+      slackService.exposedEmitMessageEvent(agentMessage);
       
       // Check that the event was emitted
-      expect(eventBus.emit).toHaveBeenCalledWith(EventType.MESSAGE_SENT, expect.anything());
+      expect(eventBus.emit).toHaveBeenCalledWith(EventType.MESSAGE_RECEIVED, expect.anything());
     });
 
     it('should prevent duplicate message processing', () => {
-      // Create a fresh instance to test the real implementation
-      const testInstance = new TestableSlackService();
-      
       // Create a mock agent message
       const agentMessage = {
         id: '123456.789',
@@ -253,9 +239,9 @@ describe('Slack Mention Processing Tests', () => {
         mentions: ['U08GYV9AU9M']
       };
       
-      // Call the exposed method twice with the same message ID
-      testInstance.exposedEmitMessageEvent(agentMessage);
-      testInstance.exposedEmitMessageEvent(agentMessage);
+      // Call the exposed method twice with the same message id
+      slackService.exposedEmitMessageEvent(agentMessage);
+      slackService.exposedEmitMessageEvent(agentMessage);
       
       // Check that the event was emitted only once
       expect(eventBus.emit).toHaveBeenCalledTimes(1);

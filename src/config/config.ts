@@ -25,11 +25,21 @@ interface GitHubConfig {
   apiUrl: string;
 }
 
+interface RedisConfig {
+  url: string;
+  enabled: boolean;
+}
+
 export interface AppConfig {
   port: number;
   slack: SlackConfig;
   github: GitHubConfig;
   openai: OpenAIConfig;
+  redis: RedisConfig;
+  features?: {
+    useLangChain?: boolean;
+    // Add other feature flags here
+  };
 }
 
 // Configuration for different environments
@@ -54,6 +64,10 @@ const configurations = {
         default: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
         assistant: process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4-turbo-preview'
       }
+    },
+    redis: {
+      url: process.env.REDIS_URL || 'redis://localhost:6379',
+      enabled: process.env.USE_REDIS_CACHE === 'true'
     }
   },
   test: {
@@ -76,6 +90,10 @@ const configurations = {
         default: 'gpt-4-turbo-preview',
         assistant: 'gpt-4-turbo-preview'
       }
+    },
+    redis: {
+      url: 'redis://localhost:6379',
+      enabled: false
     }
   },
   production: {
@@ -98,6 +116,10 @@ const configurations = {
         default: process.env.OPENAI_MODEL || 'gpt-4-turbo-preview',
         assistant: process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4-turbo-preview'
       }
+    },
+    redis: {
+      url: process.env.REDIS_URL || '',
+      enabled: process.env.USE_REDIS_CACHE === 'true'
     }
   }
 };
@@ -106,10 +128,14 @@ const configurations = {
 const env = process.env.NODE_ENV || 'development';
 
 // Export configuration for current environment
-export const config: AppConfig = 
-  env === 'production' ? configurations.production :
+export const config: AppConfig = {
+  ...(env === 'production' ? configurations.production :
   env === 'test' ? configurations.test :
-  configurations.development;
+  configurations.development),
+  features: {
+    useLangChain: true // Enable the LangChain integration by default
+  }
+};
 
 // Export environment for use in the application
 export const environment = env; 

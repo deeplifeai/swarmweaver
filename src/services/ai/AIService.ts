@@ -257,6 +257,41 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
     }
     
     // In production, add the workflow reminder with reflection protocol
-    return results + "\n\n" + reminder + "\n\nREFLECTION PROTOCOL: After completing the current workflow step, reflect on what you've accomplished and what the next step should be. Use explicit @mentions to indicate which agent should take the next action.";
+    return results + "\n\n" + reminder + "\n\nREFLECTION: After completing this step, briefly reflect on what you accomplished and what comes next. Use @mentions for the next agent.";
+  }
+
+  /**
+   * Generate a plain text response from the AI
+   * @param provider AI provider (e.g., 'openai')
+   * @param model Model identifier
+   * @param systemPrompt System instructions
+   * @param userPrompt User query
+   * @returns Generated text response
+   */
+  async generateText(
+    provider: string,
+    model: string,
+    systemPrompt: string,
+    userPrompt: string
+  ): Promise<string> {
+    try {
+      // Format messages for the API
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ];
+      
+      // Call the OpenAI API
+      const response = await this.openai.chat.completions.create({
+        model: model,
+        messages: messages as any,
+        temperature: 0.3 // Lower temperature for more consistent summaries
+      });
+      
+      return response.choices[0].message.content || '';
+    } catch (error) {
+      console.error('Error generating text:', error);
+      throw error;
+    }
   }
 } 

@@ -76,27 +76,12 @@ Current repository: ${config.github.repository}`;
  * Enhances agent system prompts with reflection capabilities
  */
 const enhanceAgentWithReflection = (agent: Agent): Agent => {
-  // Improved reflection protocol with more specific guidance
+  // Simplified reflection protocol to reduce token overhead
   const reflectionProtocol = `
-REFLECTION PROTOCOL:
-After completing any task or workflow step, reflect on:
-1. What you have just accomplished
-2. What is the next logical step in the workflow
-3. Which agent should handle the next step
-
-When another agent needs to take action, ALWAYS explicitly mention them using @name format (e.g., @Developer, @CodeReviewer).
-This @mention is REQUIRED for the proper handoff between agents.
-
-For GitHub workflow tasks specifically, follow this pattern:
-- After creating an issue → @Developer
-- After retrieving repository info → @Developer
-- After getting issue details → @Developer
-- After creating a branch → @Developer
-- After committing code → @Developer
-- After creating a pull request → @CodeReviewer
-- After approving a PR → @ProjectManager
-- After requesting changes to a PR → @Developer
-- After merging a PR → @QATester for verification and @TechnicalWriter for documentation updates
+REFLECTION:
+1. Briefly reflect on what you accomplished.
+2. Clearly state the next step.
+3. Explicitly mention the next agent (@mention).
 `;
 
   return {

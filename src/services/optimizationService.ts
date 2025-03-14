@@ -3,6 +3,40 @@ import { generateAgentResponse } from "./ai-service";
 import { estimateTokenCount, chunkText } from "@/utils/tokenManager";
 
 /**
+ * Get the context size for a given model
+ * @param model AI model
+ * @returns Maximum context size in tokens
+ */
+function getModelContextSize(model: AIModel): number {
+  const modelStr = String(model).toLowerCase();
+  
+  // OpenAI models
+  if (modelStr.includes('gpt-4-turbo') || modelStr.includes('gpt-4o')) {
+    return 128000; // 128k context window
+  }
+  if (modelStr.includes('gpt-4')) {
+    return 8192; // Standard GPT-4
+  }
+  if (modelStr.includes('gpt-3.5-turbo-16k')) {
+    return 16384; // GPT-3.5 Turbo 16k
+  }
+  if (modelStr.includes('gpt-3.5')) {
+    return 4096; // Standard GPT-3.5 Turbo
+  }
+  
+  // Perplexity models
+  if (modelStr.includes('sonar-deep-research')) {
+    return 32768; // 32k context
+  }
+  if (modelStr.includes('sonar-')) {
+    return 16384; // 16k context for other Sonar models
+  }
+  
+  // Default fallback
+  return 4096;
+}
+
+/**
  * Uses GPT-4o to shorten a system prompt while preserving critical instructions
  * @param systemPrompt Original system prompt
  * @param targetLength Target maximum length in characters
@@ -141,18 +175,24 @@ export async function processWithChunkedStrategy(
   input: string,
   apiKey: string
 ): Promise<string> {
-  // Calculate appropriate chunk size based on model
+  // Calculate estimated tokens
   const estimatedInputTokens = estimateTokenCount(input);
   const estimatedSystemTokens = estimateTokenCount(systemPrompt);
+  const totalEstimatedTokens = estimatedInputTokens + estimatedSystemTokens;
   
-  // Target 30% of model's context size for each chunk to leave room for response
-  // We'll dynamically calculate this based on token count rather than character count
-  const MAX_SAFE_TOKENS_PER_CHUNK = 2000; // Default safe limit
+  // Get model's context size
+  const modelContextSize = getModelContextSize(model);
   
-  console.info(`Using chunked processing strategy: Input ~${estimatedInputTokens} tokens, System ~${estimatedSystemTokens} tokens`);
+  // Define threshold - if under this, process normally
+  const CHUNKING_THRESHOLD = Math.floor(modelContextSize * 0.6);
+  const MAX_TOKENS_PER_CHUNK = 2000;
+  
+  console.info(`Input size: ~${estimatedInputTokens} tokens, System: ~${estimatedSystemTokens} tokens, Total: ~${totalEstimatedTokens} tokens`);
+  console.info(`Model context size: ${modelContextSize}, Threshold: ${CHUNKING_THRESHOLD}`);
   
   // If input is small enough, process directly
-  if (estimatedInputTokens <= MAX_SAFE_TOKENS_PER_CHUNK) {
+  if (totalEstimatedTokens <= CHUNKING_THRESHOLD) {
+    console.info('Input is small enough to process directly');
     return generateAgentResponse(
       provider as any,
       model,
@@ -162,111 +202,50 @@ export async function processWithChunkedStrategy(
   }
   
   try {
-    // Use GPT-4o to help optimize the system prompt if it's large
-    let optimizedPrompt = systemPrompt;
-    if (systemPrompt.length > 1000) {
-      optimizedPrompt = await shortenSystemPrompt(systemPrompt, 1000, apiKey);
-    }
-    
-    // Prepare a processing instruction to tell the model about chunking
-    const chunkingInstruction = `
-The input has been split into chunks due to its size. Process this chunk independently. 
-Your response for each chunk will be combined with responses for other chunks later.`;
-    
-    // Make sure we're careful about model compatibility
-    const useOpenAIModels = provider === 'openai';
-    
-    // Use the more intelligent chunking algorithm from tokenManager
-    const chunks = chunkText(input, MAX_SAFE_TOKENS_PER_CHUNK);
-    
+    // Split input into chunks
+    const chunks = chunkText(input, MAX_TOKENS_PER_CHUNK);
     console.info(`Split input into ${chunks.length} chunks for processing`);
     
-    // Add special marker to system prompt to prevent cache conflicts with non-chunked requests
-    const markedSystemPrompt = `${optimizedPrompt}\n\n[CHUNKED_PROCESSING]`;
+    // Process each chunk
+    const results = await Promise.all(chunks.map(async (chunk, index) => {
+      const chunkPrompt = `[CHUNK ${index + 1}/${chunks.length}] ${chunk}`;
+      console.info(`Processing chunk ${index + 1}/${chunks.length}`);
+      
+      return generateAgentResponse(
+        provider as any,
+        model,
+        systemPrompt,
+        chunkPrompt
+      );
+    }));
     
-    // Process chunks with limited parallelism instead of all at once or fully sequentially
-    const results: string[] = [];
-    const API_CALL_LIMIT = 3; // maximum number of API calls we allow
-    let apiCallCount = 0;
-    const BATCH_SIZE = 3; // limit concurrent API calls
-    for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-      const availableCalls = API_CALL_LIMIT - apiCallCount;
-      if (availableCalls <= 0) {
-        console.warn('API call limit reached. Skipping remaining chunks.');
-        break;
-      }
-      // Slice the batch, and if the batch size is larger than availableCalls, trim it
-      let batch = chunks.slice(i, i + BATCH_SIZE);
-      if (batch.length > availableCalls) {
-        batch = batch.slice(0, availableCalls);
-      }
-      const batchPromises = batch.map((chunk, index) => {
-        const actualIndex = apiCallCount + index; // use global count for numbering
-        const chunkPrompt = `${chunkingInstruction}\n\nCHUNK ${actualIndex + 1} OF ${chunks.length}:\n${chunk}`;
-        console.info(`Processing chunk ${actualIndex + 1}/${chunks.length}...`);
-        return generateAgentResponse(provider as any, model, markedSystemPrompt, chunkPrompt)
-          .then(res => {
-            console.info(`Chunk ${actualIndex + 1} processed; result length: ${res.length}`);
-            return res;
-          });
-      });
-      const batchResults = await Promise.all(batchPromises);
-      results.push(...batchResults);
-      apiCallCount += batch.length;
+    // If we only have one chunk result, return it directly
+    if (results.length === 1) {
+      return results[0];
     }
-    // End of limited parallel chunk processing
     
     // Combine the results
     const combinedOutput = results.join('\n\n---\n\n');
     
-    // If we have multiple chunks, try to use the model with the largest context window for cohesion
-    if (chunks.length > 1 && results.length > 1) {
-      // Skip cohesion processing if we've reached the API call limit
-      if (apiCallCount >= API_CALL_LIMIT) {
-        console.warn('API call limit reached. Skipping cohesion processing and returning partial results.');
-        return combinedOutput;
-      }
-      
-      try {
-        const cohesionPrompt = `
-You have processed multiple chunks of a large input. Below are your outputs for each chunk:
+    // If we have multiple chunks, create a cohesive response
+    const cohesionPrompt = `
+I've processed a large input in ${chunks.length} chunks. Below are the outputs for each chunk:
 
 ${results.map((result, i) => `--- OUTPUT CHUNK ${i + 1} ---\n${result}`).join('\n\n')}
 
-Create a single cohesive response that properly integrates all these outputs. Ensure there is no redundancy or repetition while preserving all unique information and insights. The final response should flow naturally as if it was generated from the complete input at once.`;
+Create a single cohesive response that integrates all these outputs. Remove any redundancy while preserving all unique information.`;
 
-        // Use the model with the largest context window for cohesion processing
-        // Claude-3-Opus or GPT-4-Turbo have the largest context windows
-        const largeContextModel = 'gpt-4-turbo' as AIModel; // 128k context window
-        
-        console.info(`Using large context model (${largeContextModel}) for final coherence processing`);
-        
-        // Add a special marker to ensure this doesn't pull from the regular cache
-        const cohesionSystemPrompt = `${markedSystemPrompt}\n[COHESION_PROCESSING]`;
-        
-        // Log this as a distinct API call
-        console.info(`Making additional cohesion API call (${apiCallCount + 1}/${API_CALL_LIMIT})`);
-        
-        const cohesiveOutput = await generateAgentResponse(
-          'openai',
-          largeContextModel,
-          cohesionSystemPrompt,
-          cohesionPrompt
-        );
-        
-        apiCallCount++; // Count the cohesion processing as an API call
-        
-        if (cohesiveOutput && !cohesiveOutput.startsWith('[Error:')) {
-          return cohesiveOutput;
-        }
-      } catch (error) {
-        console.error('Error creating cohesive output:', error);
-      }
-    }
+    console.info('Creating cohesive response from all chunks');
     
-    return combinedOutput;
+    // Use the same model for cohesion processing
+    return generateAgentResponse(
+      provider as any,
+      model,
+      systemPrompt,
+      cohesionPrompt
+    );
   } catch (error) {
-    console.error('Error in chunked processing strategy:', error);
+    console.error('Error in chunked processing:', error);
     throw error;
   }
 } 

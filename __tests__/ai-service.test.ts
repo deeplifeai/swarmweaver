@@ -1,7 +1,21 @@
 import * as aiService from '../src/services/ai-service';
 import { useAgentStore } from '../src/store/agentStore';
+import { AppError, ErrorType } from '../src/services/error/ErrorHandler';
 
-// Mock the whole module
+// Mock the error handler
+jest.mock('../src/services/error/ErrorHandler', () => {
+  const originalModule = jest.requireActual('../src/services/error/ErrorHandler');
+  
+  return {
+    ...originalModule,
+    ErrorHandler: jest.fn().mockImplementation(() => ({
+      handleError: jest.fn(),
+      withRetry: jest.fn((fn) => fn()) // Simply execute the function without retries in tests
+    }))
+  };
+});
+
+// Mock the whole AIService module
 jest.mock('../src/services/ai-service', () => {
   const generateAgentResponse = jest.fn().mockImplementation(
     (provider, model, systemPrompt, query) => {
@@ -94,7 +108,11 @@ describe('AI Service Error Handling', () => {
   it('should handle API errors', async () => {
     // Override the mock for this specific test
     (generateAgentResponse as jest.Mock).mockImplementationOnce(() => {
-      return Promise.reject(new Error('API error'));
+      return Promise.reject(new AppError(
+        'API error',
+        ErrorType.API,
+        { source: 'ai-service', operation: 'callProviderAPI' }
+      ));
     });
     
     // Assertions
@@ -109,7 +127,11 @@ describe('AI Service Error Handling', () => {
   it('should handle missing API key', async () => {
     // Override the mock for this specific test
     (generateAgentResponse as jest.Mock).mockImplementationOnce(() => {
-      return Promise.reject(new Error('No API key set for openai'));
+      return Promise.reject(new AppError(
+        'No API key set for openai',
+        ErrorType.AUTHENTICATION,
+        { source: 'ai-service', operation: 'callProviderAPI', provider: 'openai' }
+      ));
     });
     
     // Assertions
@@ -119,5 +141,26 @@ describe('AI Service Error Handling', () => {
       'You are a helpful assistant',
       'Hello'
     )).rejects.toThrow('No API key set for openai');
+  });
+  
+  it('should handle network errors', async () => {
+    // Override the mock for this specific test
+    (generateAgentResponse as jest.Mock).mockImplementationOnce(() => {
+      return Promise.reject(new AppError(
+        'Network connection failed',
+        ErrorType.NETWORK,
+        { source: 'ai-service', operation: 'callOpenAI' },
+        new Error('Failed to fetch'),
+        true // Retryable
+      ));
+    });
+    
+    // Assertions
+    await expect(generateAgentResponse(
+      'openai',
+      'gpt-4o',
+      'You are a helpful assistant',
+      'Hello'
+    )).rejects.toThrow('Network connection failed');
   });
 });

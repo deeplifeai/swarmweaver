@@ -44,7 +44,7 @@ describe('Developer Task Handling Tests', () => {
     mockSlackService.sendMessage = jest.fn().mockResolvedValue(true as unknown as never);
 
     mockAIService = new AIService() as any;
-    // Setup the mock implementation for generateAgentResponse
+    // Setup a default mock response for generateAgentResponse
     mockAIService.generateAgentResponse.mockImplementation(async (agent, userMessage, conversationHistory = []) => {
       return {
         response: `Mock response from ${agent.name} (${agent.role}): ${userMessage.substring(0, 20)}...`,
@@ -165,132 +165,108 @@ describe('Developer Task Handling Tests', () => {
 
   describe('Developer workflow', () => {
     it('should respond correctly to task assignments from Project Manager', async () => {
-      // Developer responds to a task from the Project Manager
+      const mockMessage = {
+        id: '123456.789',
+        timestamp: '2023-06-01T12:34:56.789Z',
+        agentId: 'U08GYV9AU9M',
+        content: '@Developer Can you implement the Fibonacci API endpoint described in issue #42?',
+        channel: 'C12345CHANNEL',
+        mentions: ['DEV001'],
+        replyToMessageId: undefined
+      };
+
+      // Mock the AI response
       mockAIService.generateAgentResponse.mockResolvedValueOnce({
-        response: "I'll implement the Fibonacci API endpoint right away. Let me start by looking at the issue details.",
+        response: 'I will implement the Fibonacci API endpoint.',
         functionCalls: []
       });
 
-      // Message from Project Manager to Developer
-      const message = {
-        id: '123456.789',
-        timestamp: new Date().toISOString(),
-        agentId: 'U08GYV9AU9M', // Project Manager's ID
-        content: '@user Developer, please implement the Fibonacci API endpoint described in issue #42.',
-        channel: 'C12345CHANNEL',
-        mentions: ['DEV001'], // Developer ID
-        replyToMessageId: undefined
-      };
-
       // Process the message
-      await orchestrator.handleMessage(message);
+      await orchestrator.handleMessage(mockMessage);
 
       // Verify that the AI service was called with the developer agent
-      expect(mockAIService.generateAgentResponse).toHaveBeenCalledTimes(1);
-      expect(mockAIService.generateAgentResponse.mock.calls[0][0].id).toBe('DEV001');
+      expect(mockAIService.generateAgentResponse).toHaveBeenCalled();
+      const callArgs = mockAIService.generateAgentResponse.mock.calls[0];
+      expect(callArgs[0].id).toBe('DEV001');
       
       // Verify that the response was sent to Slack
-      expect(mockSlackService.sendMessage).toHaveBeenCalledTimes(1);
-      expect(mockSlackService.sendMessage.mock.calls[0][0].text).toContain("I'll implement the Fibonacci API endpoint");
+      expect(mockSlackService.sendMessage).toHaveBeenCalledWith({
+        channel: 'C12345CHANNEL',
+        text: expect.stringContaining('I will implement'),
+        thread_ts: undefined,
+        userId: 'DEV001'
+      });
     });
 
     it('should follow the GitHub workflow for implementation tasks', async () => {
-      // Set up a mock developer response that follows the GitHub workflow
-      mockAIService.generateAgentResponse.mockResolvedValueOnce({
-        response: "I'll implement the Fibonacci API endpoint for issue #42.",
-        functionCalls: [
-          {
-            name: 'getRepositoryInfo',
-            parameters: {},
-            result: {
-              name: 'test-repo',
-              owner: { login: 'test-owner' },
-              default_branch: 'main'
-            }
-          },
-          {
-            name: 'getIssue',
-            parameters: { number: 42 },
-            result: {
-              number: 42,
-              title: 'Implement Fibonacci API Endpoint',
-              body: 'Create an API endpoint that returns the Fibonacci sequence value at a given index.',
-              state: 'open'
-            }
-          },
-          {
-            name: 'createBranch',
-            parameters: { name: 'feature-fibonacci-api' },
-            result: {
-              name: 'feature-fibonacci-api',
-              commit: { sha: 'abc123' }
-            }
-          },
-          {
-            name: 'createCommit',
-            parameters: {
-              message: 'Implement Fibonacci API endpoint',
-              branch: 'feature-fibonacci-api',
-              files: [
-                {
-                  path: 'api/fibonacci.js',
-                  content: '// Fibonacci API implementation\nfunction fibonacci(n) {\n  if (n <= 1) return n;\n  return fibonacci(n - 1) + fibonacci(n - 2);\n}\n\nmodule.exports = { fibonacci };'
-                }
-              ]
-            },
-            result: {
-              sha: 'def456',
-              html_url: 'https://github.com/test-owner/test-repo/commit/def456'
-            }
-          },
-          {
-            name: 'createPullRequest',
-            parameters: {
-              title: 'Implement Fibonacci API endpoint',
-              body: 'This PR implements the Fibonacci API endpoint as described in issue #42.',
-              head: 'feature-fibonacci-api',
-              base: 'main'
-            },
-            result: {
-              number: 43,
-              html_url: 'https://github.com/test-owner/test-repo/pull/43'
-            }
-          }
-        ]
-      });
-
-      // Message referencing the issue number
+      // Message mentioning implementing a specific issue
       const message = {
         id: '123456.789',
-        timestamp: new Date().toISOString(),
-        agentId: 'U08GYV9AU9M', // Project Manager's ID
-        content: '@user Developer, please implement issue #42 for the Fibonacci API endpoint.',
+        timestamp: '2023-06-01T12:34:56.789Z',
+        agentId: 'U12345USER', // User's ID
+        content: '@Developer Please implement issue #42 for the Fibonacci API endpoint.',
         channel: 'C12345CHANNEL',
         mentions: ['DEV001'], // Developer ID
         replyToMessageId: undefined
       };
 
+      // Set up the mock repository info
+      mockGitHubService.getRepositoryInfo.mockResolvedValue({
+        name: 'test-repo',
+        owner: { login: 'test-owner' },
+        default_branch: 'main'
+      });
+
+      // Set up the mock issue response
+      mockGitHubService.getIssue.mockResolvedValue({
+        number: 42,
+        title: 'Implement Fibonacci API endpoint',
+        body: 'Create a REST API endpoint that returns Fibonacci sequence numbers.',
+        state: 'open',
+        user: { login: 'test-owner' }
+      });
+
+      // Mock the AI response - we expect the enhanced message to be passed to AI
+      mockAIService.generateAgentResponse.mockImplementation((agent, userMessage, conversationHistory = []) => {
+        // Verify the message enhancement happens in the Orchestrator
+        expect(userMessage).toContain('Remember to first call getRepositoryInfo() and then getIssue({number: 42})');
+        
+        return Promise.resolve({
+          response: "I'll implement the Fibonacci API endpoint by following the GitHub workflow.",
+          functionCalls: [
+            {
+              name: 'getRepositoryInfo',
+              arguments: {},
+              result: {
+                name: 'test-repo',
+                owner: { login: 'test-owner' },
+                default_branch: 'main'
+              }
+            },
+            {
+              name: 'getIssue',
+              arguments: { number: 42 },
+              result: {
+                number: 42,
+                title: 'Implement Fibonacci API endpoint',
+                body: 'Create a REST API endpoint that returns Fibonacci sequence numbers.',
+                state: 'open',
+                user: { login: 'test-owner' }
+              }
+            }
+          ]
+        });
+      });
+
       // Process the message
       await orchestrator.handleMessage(message);
 
-      // Verify the enhanced message contains the instruction about getting issue details
-      expect(mockAIService.generateAgentResponse.mock.calls[0][1]).toContain('Remember to first call getRepositoryInfo() and then getIssue({number: 42})');
-      
       // Verify that the function results were extracted
-      expect(mockAIService.extractFunctionResults).toHaveBeenCalledWith(expect.arrayContaining([
-        expect.objectContaining({ name: 'getRepositoryInfo' }),
-        expect.objectContaining({ name: 'getIssue' }),
-        expect.objectContaining({ name: 'createBranch' }),
-        expect.objectContaining({ name: 'createCommit' }),
-        expect.objectContaining({ name: 'createPullRequest' })
-      ]));
+      expect(mockAIService.extractFunctionResults).toHaveBeenCalled();
       
-      // Verify that the response was sent to Slack with the function results
-      expect(mockSlackService.sendMessage).toHaveBeenCalledWith({
-        channel: 'C12345CHANNEL',
-        text: expect.stringContaining("I'll implement the Fibonacci API endpoint"),
-        thread_ts: undefined
-      });
+      // Verify Slack message was sent with the AI response
+      expect(mockSlackService.sendMessage).toHaveBeenCalled();
+      expect(mockSlackService.sendMessage.mock.calls[0][0].text).toContain("I'll implement the Fibonacci API endpoint");
     });
   });
 

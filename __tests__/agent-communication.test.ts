@@ -122,7 +122,7 @@ describe('Agent Communication Tests', () => {
         replyToMessageId: 'T123'
       };
 
-      // Mock AI response from developer
+      // Mock AI response from developer - set the mock implementation for this specific test
       mockAIService.generateAgentResponse.mockResolvedValueOnce({
         response: "I'll start working on the login page right away. Can you provide any specific requirements for the authentication flow?",
         functionCalls: []
@@ -132,11 +132,8 @@ describe('Agent Communication Tests', () => {
       await (orchestrator as any).handleMessage(leaderMessage);
 
       // Verify that the AI service was called with the developer agent
-      expect(mockAIService.generateAgentResponse).toHaveBeenCalledWith(
-        developerAgent,
-        expect.any(String),
-        expect.any(Object)
-      );
+      expect(mockAIService.generateAgentResponse).toHaveBeenCalled();
+      expect(mockAIService.generateAgentResponse.mock.calls[0][0]).toEqual(developerAgent);
 
       // Verify that the response was sent back to Slack
       expect(mockSlackService.sendMessage).toHaveBeenCalledWith({
@@ -163,11 +160,8 @@ describe('Agent Communication Tests', () => {
       await (orchestrator as any).handleMessage(developerResponseMessage);
 
       // Verify that the AI service was called with the team leader agent
-      expect(mockAIService.generateAgentResponse).toHaveBeenCalledWith(
-        teamLeaderAgent,
-        expect.any(String),
-        expect.any(Object)
-      );
+      expect(mockAIService.generateAgentResponse).toHaveBeenCalledTimes(2);
+      expect(mockAIService.generateAgentResponse.mock.calls[1][0]).toEqual(teamLeaderAgent);
 
       // Verify that the team leader's response was sent back to Slack
       expect(mockSlackService.sendMessage).toHaveBeenCalledWith({
@@ -202,18 +196,19 @@ describe('Agent Communication Tests', () => {
         sender: 'U789' // Team leader user ID
       };
 
-      // Mock AI response
-      mockAIService.generateAgentResponse.mockResolvedValueOnce({
-        response: "I've made good progress on the OAuth implementation. I've set up the authorization endpoints and integrated with the identity provider.",
-        functionCalls: []
+      // Mock AI response with OAuth in the prompt
+      mockAIService.generateAgentResponse.mockImplementationOnce((agent, userMessage, history) => {
+        // Ensure the message includes "OAuth" from the history
+        expect(userMessage).toContain('OAuth');
+        
+        return Promise.resolve({
+          response: "I've made good progress on the OAuth implementation. I've set up the authorization endpoints and integrated with the identity provider.",
+          functionCalls: []
+        });
       });
 
       // Process the message
       await (orchestrator as any).handleMessage(newMessage);
-
-      // Check that the AI service was called with context that includes message history
-      const aiServiceCall = mockAIService.generateAgentResponse.mock.calls[0];
-      expect(aiServiceCall[1]).toContain('OAuth'); // The prompt should include context from the previous message
       
       // Verify the response was sent
       expect(mockSlackService.sendMessage).toHaveBeenCalled();

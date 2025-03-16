@@ -106,13 +106,12 @@ describe('Developer Task Handling Tests', () => {
 
     // Create the orchestrator with our mocks
     orchestrator = new AgentOrchestrator(
-      mockSlackService, 
-      mockAIService,
+      mockSlackService as any,
+      mockAIService as any,
       mockHandoffMediator as any,
       mockStateManager as any,
       mockLoopDetector as any,
-      mockFunctionRegistry as any,
-      mockTokenManager as any
+      mockFunctionRegistry as any
     );
 
     // Register the agents

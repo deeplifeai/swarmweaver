@@ -7,7 +7,7 @@ import { HandoffMediator } from '../agents/HandoffMediator';
 import { WorkflowStateManager } from '../state/WorkflowStateManager';
 import { LoopDetector } from '../agents/LoopDetector';
 import { FunctionRegistry } from './FunctionRegistry';
-import { TokenManager } from '../../utils/TokenManager';
+import { estimateTokenCount, chunkText } from '../../utils/tokenManager';
 import { runWithLangChain } from './LangChainIntegration';
 import { config } from '@/config/config';
 import { ConversationManager } from '../ConversationManager';
@@ -25,7 +25,6 @@ export class AgentOrchestrator {
   private stateManager: WorkflowStateManager;
   private loopDetector: LoopDetector;
   private functionRegistry: FunctionRegistry;
-  private tokenManager: TokenManager;
   private conversationManager: ConversationManager;
   
   constructor(
@@ -34,8 +33,7 @@ export class AgentOrchestrator {
     handoffMediator: HandoffMediator,
     stateManager: WorkflowStateManager,
     loopDetector: LoopDetector,
-    functionRegistry: FunctionRegistry,
-    tokenManager: TokenManager
+    functionRegistry: FunctionRegistry
   ) {
     this.slackService = slackService;
     this.aiService = aiService;
@@ -43,7 +41,6 @@ export class AgentOrchestrator {
     this.stateManager = stateManager;
     this.loopDetector = loopDetector;
     this.functionRegistry = functionRegistry;
-    this.tokenManager = tokenManager;
     
     // Initialize the conversation manager
     this.conversationManager = new ConversationManager(aiService);

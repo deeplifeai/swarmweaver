@@ -193,11 +193,6 @@ describe('Agent Mention Detection', () => {
     const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
     const mockLoopDetector = { detectLoop: jest.fn(), resetLoopCounter: jest.fn() } as any;
     const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
-    const mockTokenManager = { 
-      getOptimizedPrompt: jest.fn(), 
-      estimateTokenCount: jest.fn(),
-      chunkWithOverlap: jest.fn()
-    } as any;
     
     // Create an orchestrator with our mocked services
     const orchestrator = new AgentOrchestrator(
@@ -206,8 +201,7 @@ describe('Agent Mention Detection', () => {
       mockHandoffMediator,
       mockStateManager,
       mockLoopDetector,
-      mockFunctionRegistry,
-      mockTokenManager
+      mockFunctionRegistry
     );
     
     // Register the Developer agent

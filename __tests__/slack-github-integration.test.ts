@@ -58,21 +58,15 @@ describe('Slack GitHub Integration Tests', () => {
     const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
     const mockLoopDetector = { detectLoop: jest.fn(), resetLoopCounter: jest.fn() } as any;
     const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
-    const mockTokenManager = { 
-      getOptimizedPrompt: jest.fn(), 
-      estimateTokenCount: jest.fn(),
-      chunkWithOverlap: jest.fn()
-    } as any;
 
     // Create the orchestrator with our mocks
     orchestrator = new AgentOrchestrator(
-      mockSlackService, 
-      mockAIService,
-      mockHandoffMediator,
-      mockStateManager,
-      mockLoopDetector,
-      mockFunctionRegistry,
-      mockTokenManager
+      mockSlackService as any,
+      mockAIService as any,
+      mockHandoffMediator as any,
+      mockStateManager as any,
+      mockLoopDetector as any,
+      mockFunctionRegistry as any
     );
 
     // Register the agents with the orchestrator

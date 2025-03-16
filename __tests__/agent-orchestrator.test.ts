@@ -51,8 +51,7 @@ describe('AgentOrchestrator', () => {
       mockHandoffMediator as any,
       mockStateManager as any,
       mockLoopDetector as any,
-      mockFunctionRegistry as any,
-      mockTokenManager as any
+      mockFunctionRegistry as any
     );
     
     // Use TypeScript's private property access hack to access private methods for testing

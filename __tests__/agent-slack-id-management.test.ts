@@ -1,13 +1,22 @@
 import { jest } from '@jest/globals';
+import { WorkflowState } from '../src/services/state/WorkflowStateManager';
 import { eventBus, EventType } from '../src/utils/EventBus';
 import { AgentRole } from '../src/types/agents/Agent';
 import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
 import { agents } from '../src/agents/AgentDefinitions';
 import { SlackService } from '../src/services/slack/SlackService';
+import { AIService } from '../src/services/ai/AIService';
+import { MockAIService } from './test-utils/MockAIService';
 
 // Mock dependencies
 jest.mock('../src/services/slack/SlackService');
-jest.mock('../src/services/ai/AIService');
+jest.mock('../src/services/ai/AIService', () => {
+  return {
+    AIService: jest.fn().mockImplementation(() => {
+      return new MockAIService();
+    })
+  };
+});
 jest.mock('../src/utils/EventBus', () => ({
   eventBus: {
     on: jest.fn(),
@@ -33,14 +42,7 @@ describe('Agent Slack ID Management Tests', () => {
     mockSlackService = new SlackService() as any;
     mockSlackService.sendMessage = jest.fn().mockReturnValue(Promise.resolve(true));
 
-    mockAIService = {
-      generateAgentResponse: jest.fn().mockResolvedValue({
-        response: 'Mock response',
-        functionCalls: []
-      } as unknown as never),
-      extractFunctionResults: jest.fn().mockReturnValue(''),
-      registerFunction: jest.fn()
-    };
+    mockAIService = new AIService() as any;
 
     // Create mock agents
     const mockAgents = {
@@ -70,7 +72,7 @@ describe('Agent Slack ID Management Tests', () => {
         DEVOPS_ENGINEER: []
       },
       agents: mockAgents,
-      stateManager: { getState: jest.fn().mockResolvedValue(null) },
+      stateManager: { getState: jest.fn().mockImplementation(() => Promise.resolve({ stage: 'issue_created', issueNumber: 1 } as WorkflowState)) },
       initializeAgentsByRole: jest.fn(),
       findAgentByMention: jest.fn(),
       findAgentByKeyword: jest.fn(),
@@ -93,7 +95,8 @@ describe('Agent Slack ID Management Tests', () => {
     const mockFunctionRegistry = {
       registerFunction: jest.fn(),
       getFunctionByName: jest.fn(),
-      getAllFunctions: jest.fn()
+      getAllFunctions: jest.fn(),
+      getFunctionDefinitions: jest.fn().mockReturnValue([])
     };
 
     const mockTokenManager = {

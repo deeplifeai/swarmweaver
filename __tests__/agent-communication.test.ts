@@ -4,9 +4,17 @@ import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
 import { AIService } from '../src/services/ai/AIService';
 import { SlackService } from '../src/services/slack/SlackService';
 import { eventBus, EventType } from '../src/utils/EventBus';
+import { WorkflowState } from '../src/services/state/WorkflowStateManager';
+import { MockAIService } from './test-utils/MockAIService';
 
 jest.mock('../src/services/slack/SlackService');
-jest.mock('../src/services/ai/AIService');
+jest.mock('../src/services/ai/AIService', () => {
+  return {
+    AIService: jest.fn().mockImplementation(() => {
+      return new MockAIService();
+    })
+  };
+});
 jest.mock('../src/utils/EventBus', () => ({
   eventBus: {
     on: jest.fn(),
@@ -31,8 +39,13 @@ describe('Agent Communication Tests', () => {
     mockSlackService.sendMessage = jest.fn().mockReturnValue(Promise.resolve(true));
 
     mockAIService = new AIService() as any;
-    mockAIService.generateAgentResponse = jest.fn();
-    mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
+    mockAIService.generateAgentResponse.mockImplementation(async (agent, userMessage, conversationHistory = []) => {
+      return {
+        response: `Mock response from ${agent.name} (${agent.role}): ${userMessage.substring(0, 20)}...`,
+        functionCalls: []
+      };
+    });
+    mockAIService.extractFunctionResults.mockReturnValue('Function results');
 
     // Create mock agents
     const mockAgents = {
@@ -59,8 +72,7 @@ describe('Agent Communication Tests', () => {
         DEVOPS_ENGINEER: []
       },
       agents: mockAgents,
-      stateManager: { 
-        getState: jest.fn().mockResolvedValue({ stage: 'issue_created', issueNumber: 42 }) 
+      stateManager: { getState: jest.fn().mockImplementation(() => Promise.resolve({ stage: 'issue_created', issueNumber: 42 } as WorkflowState)) 
       },
       initializeAgentsByRole: jest.fn(),
       findAgentByMention: jest.fn(),
@@ -74,7 +86,11 @@ describe('Agent Communication Tests', () => {
       recordHandoff: jest.fn(),
       recordAction: jest.fn().mockReturnValue(false)
     } as any;
-    const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
+    const mockFunctionRegistry = { 
+      registerFunction: jest.fn(), 
+      getFunctions: jest.fn(),
+      getFunctionDefinitions: jest.fn().mockReturnValue([])
+    } as any;
     const mockTokenManager = { 
       getOptimizedPrompt: jest.fn(), 
       estimateTokenCount: jest.fn(),

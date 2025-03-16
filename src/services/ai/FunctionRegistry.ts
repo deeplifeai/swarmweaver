@@ -19,6 +19,30 @@ export interface FunctionResult {
 }
 
 /**
+ * Utility function to wrap a promise with a timeout
+ * @param promise The promise to wrap with a timeout
+ * @param timeoutMs Timeout in milliseconds
+ * @param errorMessage Error message if timeout occurs
+ * @returns Promise that resolves with the result or rejects with timeout error
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>, 
+  timeoutMs: number, 
+  errorMessage: string = 'Operation timed out'
+): Promise<T> {
+  // Create a promise that rejects after the timeout
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    const timeoutId = setTimeout(() => {
+      clearTimeout(timeoutId);
+      reject(new Error(errorMessage));
+    }, timeoutMs);
+  });
+  
+  // Race the original promise against the timeout
+  return Promise.race([promise, timeoutPromise]);
+}
+
+/**
  * FunctionRegistry manages registration and execution of agent functions
  * with validation and error handling
  */
@@ -112,13 +136,12 @@ export class FunctionRegistry {
         threadTs
       } as FunctionCalledEvent);
       
-      // Execute with timeout
-      const data = await Promise.race([
+      // Execute with timeout using the utility function
+      const data = await withTimeout(
         func.handler(args, agentId, channelId, threadTs),
-        new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Function execution timed out')), this.DEFAULT_TIMEOUT)
-        )
-      ]);
+        this.DEFAULT_TIMEOUT,
+        `Function '${name}' execution timed out after ${this.DEFAULT_TIMEOUT}ms`
+      );
       
       // Set success result
       result.success = true;
@@ -141,5 +164,24 @@ export class FunctionRegistry {
       
       return result;
     }
+  }
+  
+  /**
+   * Set the default timeout for function execution
+   * @param timeoutMs Timeout in milliseconds
+   */
+  setDefaultTimeout(timeoutMs: number): void {
+    if (timeoutMs <= 0) {
+      throw new Error('Timeout must be greater than 0');
+    }
+    (this as any).DEFAULT_TIMEOUT = timeoutMs;
+  }
+  
+  /**
+   * Get the current default timeout for function execution
+   * @returns Timeout in milliseconds
+   */
+  getDefaultTimeout(): number {
+    return this.DEFAULT_TIMEOUT;
   }
 } 

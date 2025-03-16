@@ -8,6 +8,7 @@ import { SlackService } from './slack/SlackService';
 import { AIService } from './ai/AIService';
 import { config } from '@/config/config';
 import { AgentOrchestrator } from './ai/AgentOrchestrator';
+import { Agent, AgentRegistry } from '@/types/agents/Agent';
 
 /**
  * Set up the application container with all services
@@ -34,32 +35,37 @@ export const setupContainer = () => {
   container.register('slackService', slackService);
   container.register('aiService', aiService);
   
-  // Create and register the HandoffMediator (depends on stateManager)
-  container.registerFactory('handoffMediator', () => {
-    // Getting agents requires the orchestrator to be initialized first,
-    // so we use a factory to defer creation until the agents are registered
-    const orchestrator = container.resolve<AgentOrchestrator>('agentOrchestrator');
-    return new HandoffMediator(orchestrator.getAgentRegistry(), stateManager);
-  });
+  // Step 1: Initialize an empty agent registry
+  const agents: AgentRegistry = {};
   
-  // Create and register the AgentOrchestrator
-  // Initially create it with an empty HandoffMediator
-  const temporaryHandoffMediator = new HandoffMediator({}, stateManager);
+  // Step 2: Create orchestrator with placeholder for mediator
   const agentOrchestrator = new AgentOrchestrator(
     slackService,
     aiService,
-    temporaryHandoffMediator,
+    {} as HandoffMediator, // empty placeholder
     stateManager,
     loopDetector,
     functionRegistry
   );
+  
+  // Step 3: Register the orchestrator
   container.register('agentOrchestrator', agentOrchestrator);
   
-  // After orchestrator is registered, we can resolve the real handoffMediator
-  const handoffMediator = container.resolve<HandoffMediator>('handoffMediator');
+  // Step 4: Initialize agents and register them with the orchestrator
+  // This would be replaced with actual agent initialization logic
+  // initializeAgents(agentOrchestrator);
   
-  // Update the orchestrator with the real handoffMediator
+  // Step 5: Create the real HandoffMediator with the agent registry from orchestrator
+  const handoffMediator = new HandoffMediator(
+    agentOrchestrator.getAgentRegistry(),
+    stateManager
+  );
+  
+  // Step 6: Update the orchestrator with the real mediator
   agentOrchestrator.setHandoffMediator(handoffMediator);
+  
+  // Step 7: Register the mediator in the container
+  container.register('handoffMediator', handoffMediator);
   
   return container;
 };

@@ -1,6 +1,7 @@
 import { AgentFunction, FunctionRegistry } from './FunctionRegistry';
 import { Agent } from '@/types/agents/Agent';
 import { ChatOpenAI } from "@langchain/openai";
+import { eventBus, EventType } from '@/services/eventBus';
 
 /**
  * A simplified LangChain integration that adapts our codebase to use LangChain
@@ -19,9 +20,18 @@ interface AnyObject {
   [key: string]: any;
 }
 
-// LangChain's structure can be complex and variable
-// We'll log the raw response and handle different possible structures
-// to ensure we can always extract the tool calls and content
+// Define structured error for LangChain integration
+class LangChainIntegrationError extends Error {
+  public readonly context: any;
+  public readonly userFacingMessage: string;
+  
+  constructor(message: string, userFacingMessage: string, context: any = {}) {
+    super(message);
+    this.name = 'LangChainIntegrationError';
+    this.context = context;
+    this.userFacingMessage = userFacingMessage;
+  }
+}
 
 /**
  * Convert our function definitions to LangChain compatible format
@@ -49,16 +59,26 @@ export class LangChainExecutor {
   private systemPrompt: string;
 
   constructor(agent: Agent, functionRegistry: FunctionRegistry, openAIApiKey: string) {
-    this.model = new ChatOpenAI({
-      modelName: "gpt-4",
-      temperature: 0.7,
-      openAIApiKey
-    });
-    
-    this.functionRegistry = functionRegistry;
-    this.functions = functionRegistry.getFunctionDefinitions() as FunctionDefinition[];
-    this.agentId = agent.id;
-    this.systemPrompt = agent.systemPrompt;
+    try {
+      this.model = new ChatOpenAI({
+        modelName: "gpt-4",
+        temperature: 0.7,
+        openAIApiKey
+      });
+      
+      this.functionRegistry = functionRegistry;
+      this.functions = functionRegistry.getFunctionDefinitions() as FunctionDefinition[];
+      this.agentId = agent.id;
+      this.systemPrompt = agent.systemPrompt;
+    } catch (error: any) {
+      const userMessage = "Unable to initialize AI model.";
+      this.logError("Initialization error", error, userMessage);
+      throw new LangChainIntegrationError(
+        `Failed to initialize LangChainExecutor: ${error.message}`,
+        userMessage,
+        { agentId: agent.id }
+      );
+    }
   }
 
   /**
@@ -85,8 +105,10 @@ export class LangChainExecutor {
         tool_choice: "auto"
       });
 
-      // Add debug logging to see the raw response
-      console.log('Debug - Raw model response:', JSON.stringify(rawResponse, null, 2));
+      // Debug logging only for development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Debug - Raw model response:', JSON.stringify(rawResponse, null, 2));
+      }
       
       // Extract content from response
       let content = '';
@@ -105,22 +127,30 @@ export class LangChainExecutor {
       // Look in tool_calls property directly on the response object
       if (Array.isArray(rawResponse.tool_calls) && rawResponse.tool_calls.length > 0) {
         toolCalls = rawResponse.tool_calls;
-        console.log('Found tool calls in rawResponse.tool_calls:', toolCalls);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Found tool calls in rawResponse.tool_calls:', toolCalls);
+        }
       }
       // Look in kwargs.tool_calls
       else if (rawResponse.kwargs?.tool_calls && Array.isArray(rawResponse.kwargs.tool_calls)) {
         toolCalls = rawResponse.kwargs.tool_calls;
-        console.log('Found tool calls in rawResponse.kwargs.tool_calls:', toolCalls);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Found tool calls in rawResponse.kwargs.tool_calls:', toolCalls);
+        }
       }
       // Look in additional_kwargs.tool_calls
       else if (rawResponse.additional_kwargs?.tool_calls && Array.isArray(rawResponse.additional_kwargs.tool_calls)) {
         toolCalls = rawResponse.additional_kwargs.tool_calls;
-        console.log('Found tool calls in rawResponse.additional_kwargs.tool_calls:', toolCalls);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Found tool calls in rawResponse.additional_kwargs.tool_calls:', toolCalls);
+        }
       }
       // Look in kwargs.additional_kwargs.tool_calls
       else if (rawResponse.kwargs?.additional_kwargs?.tool_calls && Array.isArray(rawResponse.kwargs.additional_kwargs.tool_calls)) {
         toolCalls = rawResponse.kwargs.additional_kwargs.tool_calls;
-        console.log('Found tool calls in rawResponse.kwargs.additional_kwargs.tool_calls:', toolCalls);
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Found tool calls in rawResponse.kwargs.additional_kwargs.tool_calls:', toolCalls);
+        }
       }
       
       if (toolCalls.length > 0) {
@@ -152,7 +182,9 @@ export class LangChainExecutor {
               continue;
             }
             
-            console.log(`Executing function: ${functionName} with args:`, functionArgs);
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`Executing function: ${functionName} with args:`, functionArgs);
+            }
             
             // Execute the function
             const result = await this.functionRegistry.execute(
@@ -161,7 +193,9 @@ export class LangChainExecutor {
               this.agentId
             );
             
-            console.log(`Function result:`, result);
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`Function result:`, result);
+            }
             
             // Record the result
             toolResults.push({
@@ -170,25 +204,23 @@ export class LangChainExecutor {
               result: JSON.stringify(result)
             });
           } catch (error: any) {
-            console.error(`Error executing function:`, error);
-            const name = 
-              (toolCall.name) || 
-              (toolCall.function && toolCall.function.name) || 
-              "unknown";
-              
-            const args = JSON.stringify(
-              (toolCall.args) || 
-              (toolCall.function && toolCall.function.arguments ? 
-                (typeof toolCall.function.arguments === 'string' ? 
-                  toolCall.function.arguments : 
-                  JSON.stringify(toolCall.function.arguments)) : 
-                "{}")
+            const userFacingError = this.createUserFriendlyError(error, toolCall);
+            
+            this.logError(
+              "Error executing function", 
+              error, 
+              userFacingError.userMessage,
+              { toolCall, functionName: this.extractFunctionName(toolCall) }
             );
             
+            // Add structured error to tool results
             toolResults.push({
-              name,
-              arguments: args,
-              result: JSON.stringify({ error: error.message })
+              name: userFacingError.functionName,
+              arguments: userFacingError.functionArgs,
+              result: JSON.stringify({ 
+                error: userFacingError.userMessage,
+                success: false 
+              })
             });
           }
         }
@@ -201,14 +233,16 @@ export class LangChainExecutor {
         for (const result of toolResults) {
           try {
             const parsedResult = JSON.parse(result.result);
-            if (result.name === "getCurrentTime") {
+            if (parsedResult.error) {
+              content += `\n\n⚠️ ${result.name}: ${parsedResult.error}`;
+            } else if (result.name === "getCurrentTime") {
               // Extract the time from the data object, not directly
               content += `\n\nThe current time is ${parsedResult.data.time}.`;
             } else if (result.name === "getWeather") {
               // Extract weather data from the data object, not directly
               content += `\n\nThe weather in ${parsedResult.data.location} is ${parsedResult.data.temperature}°C and ${parsedResult.data.conditions}.`;
             } else {
-              content += `\n\n${result.name} returned: ${result.result}`;
+              content += `\n\n${result.name} completed successfully.`;
             }
           } catch (e) {
             content += `\n\n${result.name} returned: ${result.result}`;
@@ -222,13 +256,98 @@ export class LangChainExecutor {
         error: false
       };
     } catch (error: any) {
-      console.error("[LangChain] Error running executor:", error);
+      const userMessage = "I encountered an error processing your request. Please try again or simplify your request.";
+      this.logError("[LangChain] Error running executor", error, userMessage);
+      
       return {
-        output: `Error executing agent: ${error.message}`,
+        output: userMessage,
         toolCalls: [],
         error: true
       };
     }
+  }
+  
+  /**
+   * Create a user-friendly error message from a technical error
+   */
+  private createUserFriendlyError(error: any, toolCall: any): { 
+    userMessage: string;
+    functionName: string;
+    functionArgs: string;
+  } {
+    const functionName = this.extractFunctionName(toolCall);
+    const functionArgs = this.extractFunctionArgs(toolCall);
+    
+    // Technical error details for logging
+    const technicalDetails = error.message || 'Unknown error';
+    
+    // Create a simplified user-friendly message
+    let userMessage = `An error occurred executing '${functionName}'.`;
+    
+    // Add more context based on error type
+    if (error.message && error.message.includes('not found')) {
+      userMessage = `The function '${functionName}' is not available.`;
+    } else if (error.message && error.message.includes('Invalid arguments')) {
+      userMessage = `The arguments provided to '${functionName}' are invalid.`;
+    } else if (error.message && error.message.includes('timed out')) {
+      userMessage = `The function '${functionName}' timed out.`;
+    } else if (error.message && error.message.includes('rate limit')) {
+      userMessage = `Service is currently busy. Please try again in a moment.`;
+    }
+    
+    return { 
+      userMessage,
+      functionName,
+      functionArgs
+    };
+  }
+  
+  /**
+   * Extract function name from tool call
+   */
+  private extractFunctionName(toolCall: any): string {
+    return (toolCall.name) || 
+      (toolCall.function && toolCall.function.name) || 
+      "unknown";
+  }
+  
+  /**
+   * Extract stringified function arguments
+   */
+  private extractFunctionArgs(toolCall: any): string {
+    return JSON.stringify(
+      (toolCall.args) || 
+      (toolCall.function && toolCall.function.arguments ? 
+        (typeof toolCall.function.arguments === 'string' ? 
+          toolCall.function.arguments : 
+          JSON.stringify(toolCall.function.arguments)) : 
+        "{}")
+    );
+  }
+  
+  /**
+   * Log error with proper formatting and event emission
+   */
+  private logError(
+    context: string, 
+    error: any, 
+    userFacingMessage: string, 
+    additionalContext: object = {}
+  ): void {
+    // Detailed technical log
+    console.error(`${context}:`, error);
+    
+    // Include additional context in the console log
+    if (Object.keys(additionalContext).length > 0) {
+      console.error('Additional context:', additionalContext);
+    }
+    
+    // Emit error event with structured data
+    eventBus.emit(EventType.ERROR, {
+      source: 'LangChainIntegration',
+      error,
+      message: userFacingMessage
+    });
   }
 }
 
@@ -253,5 +372,5 @@ export async function runWithLangChain(
   openAIApiKey: string
 ) {
   const executor = createLangChainExecutor(agent, functionRegistry, openAIApiKey);
-  return executor.run(input);
+  return await executor.run(input);
 } 

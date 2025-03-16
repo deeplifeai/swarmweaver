@@ -1,4 +1,6 @@
 import { jest } from '@jest/globals';
+import { createMockHandoffMediator } from './utils/MockHandoffMediator';
+import { WorkflowState } from '../src/services/state/WorkflowStateManager';
 import { EventType, eventBus } from '../src/services/eventBus';
 import { SlackService } from '../src/services/slack/SlackService';
 import { AgentMessage } from '../src/types/agents/Agent';
@@ -6,6 +8,7 @@ import { SlackMessage as SlackAPIMessage } from '../src/types/slack/SlackTypes';
 import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
 import { AIService } from '../src/services/ai/AIService';
 import { developerAgent } from '../src/agents/Agents';
+import { HandoffMediator } from '../src/services/agents/HandoffMediator';
 
 // Mocking dependencies
 jest.mock('../src/services/eventBus', () => ({
@@ -196,21 +199,32 @@ describe('Agent Mention Detection', () => {
     // Create mock services for the required parameters
     const mockHandoffMediator = { 
       handleAgentHandoff: jest.fn(),
-      determineNextAgent: jest.fn().mockImplementation((channel, replyTs, message) => {
+      determineNextAgent: jest.fn().mockImplementation((channel: string, replyTs: string | null, message: AgentMessage) => {
         // Default implementation that uses the first mentioned agent or returns null
         if (message.mentions && message.mentions.length > 0) {
-          return mockAgents[message.mentions[0]];
+          return Promise.resolve(mockAgents[message.mentions[0]]);
         }
-        return null;
-      })
-    };
+        return Promise.resolve(null);
+      }),
+      // Add required properties to satisfy the HandoffMediator interface
+      markAgentBusy: jest.fn(),
+      markAgentAvailable: jest.fn(),
+      setAgentAvailability: jest.fn(),
+      isAgentAvailable: jest.fn().mockReturnValue(true),
+      recordHandoff: jest.fn().mockImplementation(() => Promise.resolve()),
+      getAgentStats: jest.fn().mockReturnValue({})
+    } as unknown as HandoffMediator;
     const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
     const mockLoopDetector = {
       checkForLoop: jest.fn(),
       recordHandoff: jest.fn(),
       recordAction: jest.fn().mockReturnValue(false)
     } as any;
-    const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
+    const mockFunctionRegistry = { 
+      registerFunction: jest.fn(), 
+      getFunctions: jest.fn(),
+      getFunctionDefinitions: jest.fn().mockReturnValue([])
+    } as any;
     
     // Create an orchestrator with our mocked services
     const orchestrator = new AgentOrchestrator(

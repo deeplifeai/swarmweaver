@@ -2,10 +2,28 @@ import { AIService } from '@/services/ai/AIService';
 import { Agent, AgentRole, AgentFunction } from '@/types/agents/Agent';
 import { OpenAIMessage } from '@/types/openai/OpenAITypes';
 import { FunctionRegistry } from '@/services/ai/FunctionRegistry';
+import { LangChainExecutor } from '@/services/ai/LangChainIntegration';
 
 // Mock LangChain integration to avoid actual API calls
 jest.mock('@/services/ai/LangChainIntegration', () => {
+  // Create a mock executor with the run method
+  const mockExecutor = {
+    run: jest.fn().mockResolvedValue({
+      output: 'This is a test response',
+      toolCalls: [
+        {
+          name: 'testFunction',
+          arguments: JSON.stringify({ param1: 'value1', param2: 'value2' }),
+          result: JSON.stringify({ result: 'success' })
+        }
+      ],
+      error: false
+    })
+  };
+  
   return {
+    LangChainExecutor: jest.fn(),
+    createLangChainExecutor: jest.fn().mockReturnValue(mockExecutor),
     runWithLangChain: jest.fn().mockResolvedValue({
       output: 'This is a test response',
       toolCalls: [
@@ -16,8 +34,7 @@ jest.mock('@/services/ai/LangChainIntegration', () => {
         }
       ],
       error: false
-    }),
-    createLangChainExecutor: jest.fn()
+    })
   };
 });
 

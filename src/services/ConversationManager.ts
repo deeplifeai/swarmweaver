@@ -1,10 +1,13 @@
 import { AIService } from './ai/AIService';
 import { OpenAIMessage } from '@/types/openai/OpenAITypes';
+import { eventBus, EventType } from '@/services/eventBus';
 
 interface ConversationSummary {
   summary: string;
   lastSummarizedMessageIndex: number;
   lastUpdated: Date;
+  // Track failed attempts to avoid endless retries
+  failedAttempts: number;
 }
 
 /**
@@ -20,6 +23,8 @@ export class ConversationManager {
   private readonly MAX_RECENT_MESSAGES = 20; // Keep last N messages in active window
   private readonly SUMMARIZE_THRESHOLD = 30; // Summarize when exceeding this many messages
   private readonly SUMMARY_REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+  private readonly MAX_RETRY_ATTEMPTS = 3; // Maximum number of retry attempts
+  private readonly RETRY_DELAY_MS = 5000; // 5 seconds between retries
   
   constructor(aiService: AIService) {
     this.aiService = aiService;
@@ -47,7 +52,12 @@ export class ConversationManager {
       
       // If summary is outdated and we have enough messages, regenerate it
       if (summaryOutdated && messages.length > this.SUMMARIZE_THRESHOLD) {
-        await this.generateSummary(conversationId);
+        try {
+          await this.generateSummary(conversationId);
+        } catch (error) {
+          console.error(`Failed to regenerate summary for conversation ${conversationId}:`, error);
+          // Continue with existing summary rather than failing
+        }
       }
       
       // Return active window with summary context
@@ -86,12 +96,22 @@ export class ConversationManager {
     
     // Check if we need to summarize older messages
     if (this.conversations[conversationId].length > this.SUMMARIZE_THRESHOLD) {
-      await this.generateSummary(conversationId);
+      try {
+        await this.generateSummary(conversationId);
+      } catch (error) {
+        console.error(`Failed to generate summary for conversation ${conversationId}:`, error);
+        // Emit an event about the summarization failure
+        eventBus.emit(EventType.ERROR, {
+          source: 'ConversationManager',
+          error,
+          message: `Failed to generate conversation summary for ${conversationId}`
+        });
+      }
     }
   }
   
   /**
-   * Generate a summary of older messages in the conversation
+   * Generate a summary of older messages in the conversation with retry logic
    * @param conversationId Conversation identifier
    */
   private async generateSummary(conversationId: string): Promise<void> {
@@ -108,6 +128,18 @@ export class ConversationManager {
     // If there are no new messages to summarize, skip
     if (startIndex >= endIndex) {
       return;
+    }
+    
+    // If we've had too many failed attempts recently, wait before trying again
+    if (lastSummary && lastSummary.failedAttempts >= this.MAX_RETRY_ATTEMPTS) {
+      const timeSinceLastAttempt = Date.now() - lastSummary.lastUpdated.getTime();
+      if (timeSinceLastAttempt < this.SUMMARY_REFRESH_INTERVAL_MS) {
+        console.log(`Skipping summarization for ${conversationId} due to multiple recent failures`);
+        return;
+      } else {
+        // Reset failed attempts counter after cooling off period
+        lastSummary.failedAttempts = 0;
+      }
     }
     
     const messagesToSummarize = messages.slice(startIndex, endIndex);
@@ -138,27 +170,66 @@ ${formattedMessages}
 
 SUMMARY:`;
 
-    try {
-      // Use a model optimized for summarization
-      const summaryText = await this.aiService.generateText(
-        'openai',
-        'gpt-3.5-turbo',
-        'You are a helpful assistant that creates accurate, concise summaries of conversations.',
-        prompt
-      );
-      
-      // Store the new summary
-      this.summaries[conversationId] = {
-        summary: summaryText,
-        lastSummarizedMessageIndex: endIndex - 1,
-        lastUpdated: new Date()
-      };
-      
-      console.info(`Generated conversation summary for conversation ${conversationId}, summarized ${messagesToSummarize.length} messages`);
-    } catch (error) {
-      console.error('Error generating conversation summary:', error);
-      // Continue without a summary rather than failing
+    // Implement retry logic
+    let attemptsRemaining = this.MAX_RETRY_ATTEMPTS;
+    let lastError = null;
+    
+    while (attemptsRemaining > 0) {
+      try {
+        // Use a model optimized for summarization
+        const summaryText = await this.aiService.generateText(
+          'openai',
+          'gpt-3.5-turbo',
+          'You are a helpful assistant that creates accurate, concise summaries of conversations.',
+          prompt
+        );
+        
+        // Store the new summary
+        this.summaries[conversationId] = {
+          summary: summaryText,
+          lastSummarizedMessageIndex: endIndex - 1,
+          lastUpdated: new Date(),
+          failedAttempts: 0 // Reset failed attempts on success
+        };
+        
+        console.info(`Generated conversation summary for conversation ${conversationId}, summarized ${messagesToSummarize.length} messages`);
+        return; // Success - exit the retry loop
+      } catch (error) {
+        lastError = error;
+        attemptsRemaining--;
+        
+        // Increment failed attempts counter for the conversation
+        if (this.summaries[conversationId]) {
+          this.summaries[conversationId].failedAttempts = 
+            (this.summaries[conversationId].failedAttempts || 0) + 1;
+          this.summaries[conversationId].lastUpdated = new Date();
+        } else {
+          this.summaries[conversationId] = {
+            summary: "Summary generation failed.",
+            lastSummarizedMessageIndex: -1,
+            lastUpdated: new Date(),
+            failedAttempts: 1
+          };
+        }
+        
+        console.warn(`Summarization attempt ${this.MAX_RETRY_ATTEMPTS - attemptsRemaining} of ${this.MAX_RETRY_ATTEMPTS} failed for conversation ${conversationId}`);
+        
+        if (attemptsRemaining > 0) {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY_MS));
+        }
+      }
     }
+    
+    // All retries failed
+    console.error(`Failed to generate summary for conversation ${conversationId} after ${this.MAX_RETRY_ATTEMPTS} attempts`, lastError);
+    
+    // Emit event for monitoring/alerting
+    eventBus.emit(EventType.ERROR, {
+      source: 'ConversationManager',
+      error: lastError,
+      message: `Failed to generate conversation summary for ${conversationId} after ${this.MAX_RETRY_ATTEMPTS} attempts`
+    });
   }
   
   /**
@@ -186,5 +257,19 @@ SUMMARY:`;
       totalMessages,
       summaries: Object.keys(this.summaries).length
     };
+  }
+  
+  /**
+   * Force re-summarize a conversation's history
+   * @param conversationId Conversation identifier
+   */
+  async forceSummarize(conversationId: string): Promise<boolean> {
+    try {
+      await this.generateSummary(conversationId);
+      return true;
+    } catch (error) {
+      console.error(`Failed to force summarize conversation ${conversationId}:`, error);
+      return false;
+    }
   }
 } 

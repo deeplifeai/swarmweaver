@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import { WorkflowState } from '../src/services/state/WorkflowStateManager';
 import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
 import { AIService } from '../src/services/ai/AIService';
 import { SlackService } from '../src/services/slack/SlackService';
@@ -6,10 +7,17 @@ import { GitHubService } from '../src/services/github/GitHubService';
 import { eventBus, EventType } from '../src/utils/EventBus';
 import { agents } from '../src/agents/AgentDefinitions';
 import { setGitHubService } from '../src/services/github/GitHubFunctions';
+import { MockAIService } from './test-utils/MockAIService';
 
 // Mock dependencies
 jest.mock('../src/services/slack/SlackService');
-jest.mock('../src/services/ai/AIService');
+jest.mock('../src/services/ai/AIService', () => {
+  return {
+    AIService: jest.fn().mockImplementation(() => {
+      return new MockAIService();
+    })
+  };
+});
 jest.mock('../src/services/github/GitHubService');
 jest.mock('../src/utils/EventBus', () => ({
   eventBus: {
@@ -37,6 +45,7 @@ describe('Slack GitHub Integration Tests', () => {
     mockSlackService = new SlackService() as any;
     mockSlackService.sendMessage = jest.fn().mockResolvedValue(true as unknown as never);
 
+    // Create AIService mock
     mockAIService = new AIService() as any;
     mockAIService.generateAgentResponse = jest.fn();
     mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
@@ -78,7 +87,7 @@ describe('Slack GitHub Integration Tests', () => {
         DEVOPS_ENGINEER: []
       },
       agents: mockAgents,
-      stateManager: { getState: jest.fn().mockResolvedValue(null) },
+      stateManager: { getState: jest.fn().mockImplementation(() => Promise.resolve({ stage: 'issue_created', issueNumber: 1 } as WorkflowState)) },
       initializeAgentsByRole: jest.fn(),
       findAgentByMention: jest.fn(),
       findAgentByKeyword: jest.fn(),
@@ -91,7 +100,11 @@ describe('Slack GitHub Integration Tests', () => {
       recordHandoff: jest.fn(),
       recordAction: jest.fn().mockReturnValue(false)
     } as any;
-    const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
+    const mockFunctionRegistry = { 
+      registerFunction: jest.fn(), 
+      getFunctions: jest.fn(),
+      getFunctionDefinitions: jest.fn().mockReturnValue([])
+    } as any;
 
     // Create the orchestrator with our mocks
     orchestrator = new AgentOrchestrator(

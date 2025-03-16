@@ -1,4 +1,3 @@
-import OpenAI from 'openai';
 import { 
   OpenAIMessage, 
   OpenAIFunctionDefinition, 
@@ -7,10 +6,15 @@ import {
 import { config } from '@/config/config';
 import { Agent, AgentFunction, AgentRole } from '@/types/agents/Agent';
 import { FunctionRegistry } from './FunctionRegistry';
-import { createLangChainExecutor, runWithLangChain } from './LangChainIntegration';
+import { LangChainExecutor, createLangChainExecutor } from './LangChainIntegration';
 
+/**
+ * AIService acts as a thin wrapper around the LangChain integration,
+ * delegating all AI model interactions to a single integration point.
+ */
 export class AIService {
   private functionRegistry: FunctionRegistry;
+  private executorCache: Map<string, LangChainExecutor> = new Map();
   
   constructor() {
     this.functionRegistry = new FunctionRegistry();
@@ -28,6 +32,13 @@ export class AIService {
     this.functionRegistry.register(func);
   }
   
+  /**
+   * Generate a response for an agent, delegating to LangChain
+   * @param agent The agent to generate a response for
+   * @param userMessage The user's message
+   * @param conversationHistory Optional conversation history
+   * @returns The generated response and any function calls
+   */
   async generateAgentResponse(
     agent: Agent, 
     userMessage: string, 
@@ -36,41 +47,25 @@ export class AIService {
     try {
       console.log(`Generating response for agent ${agent.name} with role ${agent.role}`);
       
-      // For Developer working on issues, add specific instructions about GitHub workflow
-      let enhancedSystemPrompt = agent.systemPrompt;
-      if (agent.role === 'DEVELOPER' && userMessage.includes('issue #')) {
-        const issueMatch = userMessage.match(/issue #(\d+)/);
-        if (issueMatch && issueMatch[1]) {
-          const issueNumber = parseInt(issueMatch[1], 10);
-          
-          enhancedSystemPrompt += `\n\nYou are currently working on issue #${issueNumber}. 
-          
-CRITICAL: You MUST follow this GitHub workflow in exact order with no deviations:
-1. Call getRepositoryInfo() first
-2. Call getIssue({number: ${issueNumber}}) next to get issue details
-3. Create a branch with createBranch()
-4. Make code changes and commit them with createCommit()
-5. Create a PR with createPullRequest()
-
-DO NOT skip any steps, suggest manual approaches, or ask for clarification before starting - immediately begin implementing the workflow.`;
-        }
+      // Create an executor or get from cache
+      let executor = this.executorCache.get(agent.id);
+      if (!executor) {
+        executor = createLangChainExecutor(
+          agent,
+          this.functionRegistry,
+          config.openai.apiKey
+        );
+        this.executorCache.set(agent.id, executor);
       }
       
-      // Create a modified agent with enhanced system prompt
-      const enhancedAgent = {
-        ...agent,
-        systemPrompt: enhancedSystemPrompt
-      };
+      // Process conversation history if provided
+      // This would need to be handled by incorporating it into the prompt or
+      // using LangChain's memory capabilities
       
-      // Use LangChain integration
-      const result = await runWithLangChain(
-        enhancedAgent,
-        this.functionRegistry,
-        userMessage,
-        config.openai.apiKey
-      );
+      // Run the executor
+      const result = await executor.run(userMessage);
       
-      // Convert LangChain tool calls to our existing format for compatibility
+      // Convert LangChain tool calls to our format for compatibility
       const functionCalls = result.toolCalls.map(toolCall => ({
         name: toolCall.name,
         arguments: JSON.parse(toolCall.arguments),
@@ -173,6 +168,14 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
     return results;
   }
   
+  /**
+   * Generate simple text using LangChain
+   * @param provider The provider to use (currently only OpenAI supported)
+   * @param model The model to use
+   * @param systemPrompt The system prompt
+   * @param userPrompt The user's prompt
+   * @returns The generated text
+   */
   async generateText(
     provider: string,
     model: string,
@@ -191,13 +194,15 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
         personality: 'Helpful and concise'
       };
       
-      // Use LangChain for all text generation
-      const result = await runWithLangChain(
+      // Create executor for the dummy agent
+      const executor = createLangChainExecutor(
         dummyAgent,
         this.functionRegistry,
-        userPrompt,
         config.openai.apiKey
       );
+      
+      // Run the executor
+      const result = await executor.run(userPrompt);
       
       return result.output;
     } catch (error) {

@@ -1,14 +1,22 @@
 import { jest } from '@jest/globals';
+import { WorkflowState } from '../src/services/state/WorkflowStateManager';
 import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
 import { AIService } from '../src/services/ai/AIService';
 import { SlackService } from '../src/services/slack/SlackService';
 import { GitHubService } from '../src/services/github/GitHubService';
 import { developerAgent, projectManagerAgent } from '../src/agents/AgentDefinitions';
 import { setGitHubService } from '../src/services/github/GitHubFunctions';
+import { MockAIService } from './test-utils/MockAIService';
 
 // Mock dependencies
 jest.mock('../src/services/slack/SlackService');
-jest.mock('../src/services/ai/AIService');
+jest.mock('../src/services/ai/AIService', () => {
+  return {
+    AIService: jest.fn().mockImplementation(() => {
+      return new MockAIService();
+    })
+  };
+});
 jest.mock('../src/services/github/GitHubService');
 jest.mock('../src/services/github/GitHubFunctions');
 jest.mock('../src/utils/EventBus', () => ({
@@ -36,8 +44,14 @@ describe('Developer Task Handling Tests', () => {
     mockSlackService.sendMessage = jest.fn().mockResolvedValue(true as unknown as never);
 
     mockAIService = new AIService() as any;
-    mockAIService.generateAgentResponse = jest.fn();
-    mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
+    // Setup the mock implementation for generateAgentResponse
+    mockAIService.generateAgentResponse.mockImplementation(async (agent, userMessage, conversationHistory = []) => {
+      return {
+        response: `Mock response from ${agent.name} (${agent.role}): ${userMessage.substring(0, 20)}...`,
+        functionCalls: []
+      };
+    });
+    mockAIService.extractFunctionResults.mockReturnValue('Function results');
     mockAIService.registerFunction = jest.fn();
 
     mockGitHubService = new GitHubService() as any;
@@ -101,7 +115,7 @@ describe('Developer Task Handling Tests', () => {
         DEVOPS_ENGINEER: []
       },
       agents: mockAgents,
-      stateManager: { getState: jest.fn().mockResolvedValue(null) },
+      stateManager: { getState: jest.fn().mockImplementation(() => Promise.resolve({ stage: 'issue_created', issueNumber: 1 } as WorkflowState)) },
       initializeAgentsByRole: jest.fn(),
       findAgentByMention: jest.fn(),
       findAgentByKeyword: jest.fn(),
@@ -124,7 +138,8 @@ describe('Developer Task Handling Tests', () => {
     const mockFunctionRegistry = {
       registerFunction: jest.fn(),
       getFunctionByName: jest.fn(),
-      getAllFunctions: jest.fn()
+      getAllFunctions: jest.fn(),
+      getFunctionDefinitions: jest.fn().mockReturnValue([])
     };
 
     const mockTokenManager = {

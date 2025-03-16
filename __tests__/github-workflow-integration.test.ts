@@ -5,6 +5,9 @@ import { AgentOrchestrator } from '../src/services/ai/AgentOrchestrator';
 import { AIService } from '../src/services/ai/AIService';
 import { SlackService } from '../src/services/slack/SlackService';
 import { githubService } from '../src/services/github/GitHubService';
+import { WorkflowState } from '../src/services/state/WorkflowStateManager';
+import { HandoffMediator } from '../src/services/agents/HandoffMediator';
+import { Agent, AgentMessage } from '../src/types/agents/Agent';
 
 // Define interface for SlackMessage to fix typing issues
 interface SlackMessage {
@@ -82,20 +85,31 @@ describe('GitHub Workflow Integration Tests', () => {
         DEVOPS_ENGINEER: []
       },
       agents: mockAgents,
-      stateManager: { getState: jest.fn().mockResolvedValue(null) },
+      stateManager: { 
+        getState: jest.fn().mockImplementation(() => Promise.resolve(null))
+      },
       initializeAgentsByRole: jest.fn(),
       findAgentByMention: jest.fn(),
       findAgentByKeyword: jest.fn(),
       getAgentForState: jest.fn(),
       recordHandoff: jest.fn()
-    } as any;
-    const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
+    } as unknown as HandoffMediator;
+    
+    const mockStateManager = {
+      getState: jest.fn().mockResolvedValue({ stage: 'issue_created', issueNumber: 1 } as WorkflowState),
+      getWorkflowState: jest.fn(),
+      updateWorkflowState: jest.fn()
+    } as unknown as any;
     const mockLoopDetector = {
       checkForLoop: jest.fn(),
       recordHandoff: jest.fn(),
       recordAction: jest.fn().mockReturnValue(false)
     } as any;
-    const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
+    const mockFunctionRegistry = { 
+      registerFunction: jest.fn(), 
+      getFunctions: jest.fn(),
+      getFunctionDefinitions: jest.fn().mockReturnValue([])
+    } as any;
     const mockTokenManager = { 
       getOptimizedPrompt: jest.fn(), 
       estimateTokenCount: jest.fn(),

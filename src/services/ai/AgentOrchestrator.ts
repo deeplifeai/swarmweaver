@@ -195,14 +195,13 @@ export class AgentOrchestrator {
         // Use the standard AIService - pass the agent object
         const aiResponse = await this.aiService.generateAgentResponse(
           agent,
-          systemPrompt,
-          [...conversationHistory, userMessage]
+          message.content,
+          [...conversationHistory]
         );
         
-        // Extract the response text from the AI response
-        response = typeof aiResponse === 'string' 
-          ? aiResponse 
-          : aiResponse.response || 'No response generated';
+        // Extract the response text and function calls from the AI response
+        response = aiResponse.response;
+        toolCalls = aiResponse.functionCalls || [];
       }
       
       // After processing, update the conversation history with the new messages

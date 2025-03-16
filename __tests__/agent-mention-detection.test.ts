@@ -188,10 +188,28 @@ describe('Agent Mention Detection', () => {
     });
     (mockAIService as any).generateAgentResponse = mockGenerateResponse;
     
+    // Create mock agents
+    const mockAgents = {
+      'DEV001': { id: 'DEV001', name: 'Developer', role: 'DEVELOPER' }
+    };
+
     // Create mock services for the required parameters
-    const mockHandoffMediator = { handleAgentHandoff: jest.fn() } as any;
+    const mockHandoffMediator = { 
+      handleAgentHandoff: jest.fn(),
+      determineNextAgent: jest.fn().mockImplementation((channel, replyTs, message) => {
+        // Default implementation that uses the first mentioned agent or returns null
+        if (message.mentions && message.mentions.length > 0) {
+          return mockAgents[message.mentions[0]];
+        }
+        return null;
+      })
+    };
     const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
-    const mockLoopDetector = { detectLoop: jest.fn(), resetLoopCounter: jest.fn() } as any;
+    const mockLoopDetector = {
+      checkForLoop: jest.fn(),
+      recordHandoff: jest.fn(),
+      recordAction: jest.fn().mockReturnValue(false)
+    } as any;
     const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
     
     // Create an orchestrator with our mocked services

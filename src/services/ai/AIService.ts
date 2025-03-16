@@ -5,47 +5,27 @@ import {
   OpenAITool 
 } from '@/types/openai/OpenAITypes';
 import { config } from '@/config/config';
-import { Agent, AgentFunction } from '@/types/agents/Agent';
+import { Agent, AgentFunction, AgentRole } from '@/types/agents/Agent';
+import { FunctionRegistry } from './FunctionRegistry';
+import { createLangChainExecutor, runWithLangChain } from './LangChainIntegration';
 
 export class AIService {
-  private openai: any; // Use any type to avoid constructor issues
-  private functionRegistry: Record<string, AgentFunction> = {};
+  private functionRegistry: FunctionRegistry;
   
   constructor() {
-    try {
-      // Handle both ESM and CommonJS import patterns
-      const OpenAIConstructor = (OpenAI as any).default || OpenAI;
-      this.openai = new OpenAIConstructor({
-        apiKey: config.openai.apiKey
-      });
-    } catch (error) {
-      console.error('Error initializing OpenAI:', error);
-      // Create a fallback for tests
-      this.openai = {
-        chat: {
-          completions: {
-            create: async () => ({
-              choices: [{
-                message: {
-                  content: 'This is a test response',
-                  tool_calls: [{
-                    type: 'function',
-                    function: {
-                      name: 'testFunction',
-                      arguments: JSON.stringify({ param1: 'value1', param2: 'value2' })
-                    }
-                  }]
-                }
-              }]
-            })
-          }
-        }
-      };
-    }
+    this.functionRegistry = new FunctionRegistry();
+  }
+  
+  /**
+   * Sets the function registry used by the AIService
+   * @param registry The function registry to use
+   */
+  setFunctionRegistry(registry: FunctionRegistry) {
+    this.functionRegistry = registry;
   }
   
   registerFunction(func: AgentFunction) {
-    this.functionRegistry[func.name] = func;
+    this.functionRegistry.register(func);
   }
   
   async generateAgentResponse(
@@ -76,90 +56,29 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
         }
       }
       
-      // Create the system message with agent's persona
-      const systemMessage: OpenAIMessage = {
-        role: 'system',
-        content: enhancedSystemPrompt
+      // Create a modified agent with enhanced system prompt
+      const enhancedAgent = {
+        ...agent,
+        systemPrompt: enhancedSystemPrompt
       };
       
-      // Add the user message
-      const userOpenAIMessage: OpenAIMessage = {
-        role: 'user',
-        content: userMessage
-      };
+      // Use LangChain integration
+      const result = await runWithLangChain(
+        enhancedAgent,
+        this.functionRegistry,
+        userMessage,
+        config.openai.apiKey
+      );
       
-      // Prepare the full conversation history
-      const messages: OpenAIMessage[] = [
-        systemMessage,
-        ...conversationHistory,
-        userOpenAIMessage
-      ];
-      
-      // Prepare functions for the agent
-      const tools: OpenAITool[] = agent.functions.map(func => ({
-        type: 'function',
-        function: func
+      // Convert LangChain tool calls to our existing format for compatibility
+      const functionCalls = result.toolCalls.map(toolCall => ({
+        name: toolCall.name,
+        arguments: JSON.parse(toolCall.arguments),
+        result: JSON.parse(toolCall.result)
       }));
       
-      // Call the OpenAI API
-      const response = await this.openai.chat.completions.create({
-        model: config.openai.models.default,
-        messages: messages as any,
-        tools: tools.length > 0 ? tools : undefined,
-        tool_choice: tools.length > 0 ? 'auto' : undefined
-      });
-      
-      const responseMessage = response.choices[0].message;
-      let functionCalls: any[] = [];
-      
-      // Process any function calls
-      if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-        functionCalls = await Promise.all(
-          responseMessage.tool_calls.map(async (toolCall) => {
-            if (toolCall.type === 'function') {
-              const functionName = toolCall.function.name;
-              const functionArgs = JSON.parse(toolCall.function.arguments);
-              
-              if (this.functionRegistry[functionName]) {
-                try {
-                  const result = await this.functionRegistry[functionName].handler(
-                    functionArgs, 
-                    agent.id
-                  );
-                  return {
-                    name: functionName,
-                    arguments: functionArgs,
-                    result
-                  };
-                } catch (error) {
-                  return {
-                    name: functionName,
-                    arguments: functionArgs,
-                    result: {
-                      error: error instanceof Error ? error.message : 'Unknown error'
-                    }
-                  };
-                }
-              } else {
-                return {
-                  name: functionName,
-                  arguments: functionArgs,
-                  result: {
-                    error: `Function '${functionName}' not found in registry`
-                  }
-                }
-              }
-            }
-            return null;
-          })
-        );
-        
-        // Filter out null results
-        functionCalls = functionCalls.filter(call => call !== null);
-      }
-      
       return {
-        response: responseMessage.content || '',
+        response: result.output,
         functionCalls
       };
     } catch (error) {
@@ -198,76 +117,62 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
         // Format GitHub function results in a user-friendly way with consistent @mentions
         if (call.name === 'createIssue' && call.result) {
           return `✅ Created GitHub issue #${call.result.issue_number}: "${call.arguments.title}"\n📎 ${call.result.url}\n\n@Developer Please implement this issue following the workflow steps.`;
-        } 
-        else if (call.name === 'getIssue' && call.result) {
-          const nextStepHint = "Next, create a branch with createBranch() before making any code changes.";
-          return `📋 GitHub issue #${call.result.number}: "${call.result.title}"\n\n${call.result.body}\n\n📎 ${call.result.html_url}\n\n@Developer ${nextStepHint}`;
         }
-        else if (call.name === 'createPullRequest' && call.result) {
-          return `✅ Created GitHub pull request #${call.result.pr_number}: "${call.arguments.title}"\n📎 ${call.result.url}\n\n@CodeReviewer Please review this PR when you have a chance.`;
+        
+        if (call.name === 'createPullRequest' && call.result) {
+          return `✅ Created PR #${call.result.number}: "${call.result.title}"\n📎 ${call.result.html_url}\n\n@Reviewer Please review this PR.`;
         }
-        else if (call.name === 'createCommit' && call.result) {
-          // Check if branch was automatically created during commit
-          if (call.result.message && call.result.message.includes('Branch') && call.result.message.includes('was created')) {
-            const branchName = call.arguments.branch || 'main';
-            return `🔄 Branch \`${branchName}\` was automatically created\n✅ Committed changes: "${call.arguments.message}"\n\n@Developer Next, create a pull request with createPullRequest()`;
+        
+        if (call.name === 'getRepositoryInfo' && call.result) {
+          return `📁 Repository Info:\nName: ${call.result.name}\nDescription: ${call.result.description || 'No description'}\nStars: ${call.result.stargazers_count}\nForks: ${call.result.forks_count}`;
+        }
+        
+        if (call.name === 'getIssue' && call.result) {
+          return `📝 Issue #${call.result.number}: ${call.result.title}\nStatus: ${call.result.state}\nCreated by: ${call.result.user.login}\nDescription: ${call.result.body}`;
+        }
+        
+        if (call.name === 'createBranch' && call.result) {
+          return `🌿 Created branch: ${call.result.name}\nFrom: ${call.result.source || 'default branch'}`;
+        }
+        
+        if (call.name === 'createCommit' && call.result) {
+          const filesChanged = Object.keys(call.arguments.changes || {}).length;
+          return `📝 Created commit: "${call.arguments.message}"\nFiles changed: ${filesChanged}`;
+        }
+        
+        if (call.name === 'getPullRequest' && call.result) {
+          const prStatus = call.result.state === 'open' ? '🟢 Open' : '🔵 Closed';
+          return `📥 PR #${call.result.number}: ${call.result.title}\nStatus: ${prStatus}\nCreated by: ${call.result.user.login}`;
+        }
+        
+        if (call.name === 'listPullRequests' && call.result) {
+          const prCount = call.result.length;
+          if (prCount === 0) {
+            return "No pull requests found.";
           }
-          return `✅ Created GitHub commit ${call.result.commit_sha?.substring(0, 7) || ''}: "${call.arguments.message}"\n\n@Developer Next, create a pull request with createPullRequest()`;
+          const prInfo = call.result.slice(0, 5).map((pr) => {
+            return `• #${pr.number} - ${pr.title} (${pr.state})`;
+          }).join('\n');
+          const moreInfo = prCount > 5 ? `\nAnd ${prCount - 5} more...` : '';
+          return `📊 Pull Requests (${prCount}):\n${prInfo}${moreInfo}`;
         }
-        else if (call.name === 'createBranch' && call.result) {
-          return `✅ Created GitHub branch \`${call.arguments.name}\` from \`${call.arguments.source || 'main'}\`\n\n@Developer Now implement your code changes and commit them with createCommit()`;
-        }
-        else if (call.name === 'createReview' && call.result) {
-          const mentionTarget = call.arguments.event.toLowerCase() === 'approve' ? '@ProjectManager' : '@Developer';
-          const reviewMessage = call.arguments.event.toLowerCase() === 'approve' 
-            ? `${mentionTarget} This PR has been approved and is ready to be merged.` 
-            : `${mentionTarget} Please address the review comments on this PR.`;
-          return `✅ Created GitHub review on PR #${call.arguments.pull_number} with status: ${call.arguments.event}\n\n${reviewMessage}`;
-        }
-        else if (call.name === 'getRepositoryInfo' && call.result) {
-          const repo = call.result.repository;
-          const nextStepHint = "Next, use getIssue() to get information about the specific issue you need to implement.";
-          return `📁 GitHub repository info:\n• Name: ${repo.full_name}\n• Description: ${repo.description || 'N/A'}\n• Default branch: ${repo.default_branch}\n• Open issues: ${repo.open_issues_count}\n• URL: ${repo.url}\n\n@Developer ${nextStepHint}`;
-        }
-        // Success message for any function with success flag
-        else if (call.result && call.result.success) {
-          let result = `✅ Function \`${call.name}\` completed successfully`;
-          if (call.arguments) {
-            result += ` with arguments: ${JSON.stringify(call.arguments)}`;
-          }
-          return result;
-        }
-        // Generic function information for any function call
-        else {
-          let result = `Function ${call.name} was called`;
-          if (call.arguments) {
-            result += ` with arguments: ${JSON.stringify(call.arguments)}`;
-          }
-          if (call.result) {
-            result += `\nResult: ${JSON.stringify(call.result)}`;
-          }
-          return result;
-        }
+        
+        // Default formatting for any other function
+        return `✅ Function \`${call.name}\` result: ${JSON.stringify(call.result, null, 2)}`;
       })
       .join('\n\n');
-      
-    // For test environment, don't add reminder
-    if (process.env.NODE_ENV === 'test') {
-      return results;
+    
+    // For GitHub workflow functions, add the reminder
+    const gitHubFunctions = ['getRepositoryInfo', 'getIssue', 'createBranch', 'createCommit', 'createPullRequest'];
+    const hasGitHubFunction = functionCalls.some(call => gitHubFunctions.includes(call.name));
+    
+    if (hasGitHubFunction) {
+      return results + '\n\n' + reminder;
     }
     
-    // In production, add the workflow reminder with reflection protocol
-    return results + "\n\n" + reminder + "\n\nREFLECTION: After completing this step, briefly reflect on what you accomplished and what comes next. Use @mentions for the next agent.";
+    return results;
   }
-
-  /**
-   * Generate a plain text response from the AI
-   * @param provider AI provider (e.g., 'openai')
-   * @param model Model identifier
-   * @param systemPrompt System instructions
-   * @param userPrompt User query
-   * @returns Generated text response
-   */
+  
   async generateText(
     provider: string,
     model: string,
@@ -275,23 +180,29 @@ DO NOT skip any steps, suggest manual approaches, or ask for clarification befor
     userPrompt: string
   ): Promise<string> {
     try {
-      // Format messages for the API
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ];
+      // Create a minimal dummy agent for text generation
+      const dummyAgent: Agent = {
+        id: 'text-generation',
+        name: 'Text Generator',
+        role: AgentRole.DEVELOPER,
+        systemPrompt: systemPrompt,
+        functions: [],
+        description: 'Text generation agent',
+        personality: 'Helpful and concise'
+      };
       
-      // Call the OpenAI API
-      const response = await this.openai.chat.completions.create({
-        model: model,
-        messages: messages as any,
-        temperature: 0.3 // Lower temperature for more consistent summaries
-      });
+      // Use LangChain for all text generation
+      const result = await runWithLangChain(
+        dummyAgent,
+        this.functionRegistry,
+        userPrompt,
+        config.openai.apiKey
+      );
       
-      return response.choices[0].message.content || '';
+      return result.output;
     } catch (error) {
-      console.error('Error generating text:', error);
-      throw error;
+      console.error('Error in text generation:', error);
+      return `Error generating text: ${error instanceof Error ? error.message : 'Unknown error'}`;
     }
   }
 } 

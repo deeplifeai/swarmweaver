@@ -11,6 +11,11 @@ import {
   isValidSlackToken,
   maskToken 
 } from './utils/SecurityUtils';
+import { MemoryStateStorage, WorkflowStateManager } from './services/state/WorkflowStateManager';
+import { LoopDetector } from './services/agents/LoopDetector';
+import { FunctionRegistry } from './services/ai/FunctionRegistry';
+import { HandoffMediator } from './services/agents/HandoffMediator';
+import { Agent } from './types/agents/Agent';
 
 // Check if required configuration is available
 function validateConfiguration() {
@@ -99,7 +104,29 @@ async function startApplication() {
     console.log('⚙️ Initializing services...');
     const slackService = new SlackService();
     const aiService = new AIService();
-    const agentOrchestrator = new AgentOrchestrator(slackService, aiService);
+    
+    // Create additional required services for AgentOrchestrator
+    const stateStorage = new MemoryStateStorage();
+    const stateManager = new WorkflowStateManager(stateStorage);
+    const loopDetector = new LoopDetector();
+    const functionRegistry = new FunctionRegistry();
+    
+    // Convert agents array to AgentRegistry (Record<string, Agent>)
+    const agentRegistry = agents.reduce((registry, agent) => {
+      registry[agent.id] = agent;
+      return registry;
+    }, {} as Record<string, Agent>);
+    
+    const handoffMediator = new HandoffMediator(agentRegistry, stateManager);
+    
+    const agentOrchestrator = new AgentOrchestrator(
+      slackService, 
+      aiService, 
+      handoffMediator, 
+      stateManager, 
+      loopDetector, 
+      functionRegistry
+    );
     
     // Register GitHub functions with AI service
     console.log('🔧 Registering GitHub functions...');

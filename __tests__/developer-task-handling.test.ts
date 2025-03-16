@@ -73,13 +73,41 @@ describe('Developer Task Handling Tests', () => {
     // Set the mock GitHub service
     setGitHubService(mockGitHubService);
 
+    // Create mock agents
+    const mockAgents = {
+      'U08GYV9AU9M': { id: 'U08GYV9AU9M', name: 'ProjectManager', role: 'PROJECT_MANAGER' },
+      'DEV001': { id: 'DEV001', name: 'Developer', role: 'DEVELOPER' }
+    };
+
     // Create additional mock services
     const mockHandoffMediator = {
       registerOrchestrator: jest.fn(),
       handleAgentHandoff: jest.fn(),
-      determineNextAgent: jest.fn().mockImplementation(() => Promise.resolve(undefined)),
+      determineNextAgent: jest.fn().mockImplementation((channel: string, replyTs: string | null, message: any) => {
+        // Type the message parameter properly
+        if (message && message.mentions && message.mentions.length > 0) {
+          return mockAgents[message.mentions[0]];
+        }
+        return null;
+      }),
+      // Add missing properties required by HandoffMediator interface
+      agentsByRole: {
+        DEVELOPER: [mockAgents['DEV001']],
+        PROJECT_MANAGER: [mockAgents['U08GYV9AU9M']],
+        CODE_REVIEWER: [],
+        QA_TESTER: [],
+        TECHNICAL_WRITER: [],
+        SECURITY_ENGINEER: [],
+        DEVOPS_ENGINEER: []
+      },
+      agents: mockAgents,
+      stateManager: { getState: jest.fn().mockResolvedValue(null) },
+      initializeAgentsByRole: jest.fn(),
+      findAgentByMention: jest.fn(),
+      findAgentByKeyword: jest.fn(),
+      getAgentForState: jest.fn(),
       recordHandoff: jest.fn()
-    };
+    } as any;
 
     const mockStateManager = {
       updateState: jest.fn(),
@@ -89,7 +117,8 @@ describe('Developer Task Handling Tests', () => {
 
     const mockLoopDetector = {
       checkForLoop: jest.fn(),
-      recordHandoff: jest.fn()
+      recordHandoff: jest.fn(),
+      recordAction: jest.fn().mockReturnValue(false)
     };
 
     const mockFunctionRegistry = {

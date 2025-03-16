@@ -17,7 +17,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { toast } from 'sonner';
 import { AgentNode } from './AgentNode';
-import { useAgentStore } from '@/store/agentStore';
+import { useAgentState } from '@/store/useAgentState.tsx';
 import { generateAgentResponse } from '@/services/ai-service';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -41,14 +41,26 @@ export function FlowCanvas() {
   const [downloadFormat, setDownloadFormat] = useState<'json' | 'text'>('json');
   const [outputsAvailable, setOutputsAvailable] = useState(false);
 
-  const storeNodes = useAgentStore((state) => state.nodes);
-  const storeEdges = useAgentStore((state) => state.edges);
-  const agents = useAgentStore((state) => state.agents);
-  const executionResults = useAgentStore((state) => state.executionResults);
-  const saveCanvasState = useAgentStore((state) => state.saveCanvasState);
-  const exportCanvasToFile = useAgentStore((state) => state.exportCanvasToFile);
-  const clearCanvas = useAgentStore((state) => state.clearCanvas);
-  const clearAgents = useAgentStore((state) => state.clearAgents);
+  const {
+    nodes: storeNodes,
+    edges: storeEdges,
+    agents,
+    executionResults,
+    saveCanvasState,
+    exportCanvasToFile,
+    clearCanvas,
+    clearAgents,
+    addEdge: addFlowEdge,
+    removeEdge,
+    updateNode,
+    removeNode,
+    setExecutionResult,
+    setNodeOutput,
+    processingApiCalls,
+    setProcessingApiCalls,
+    apiKey: apiKeys
+  } = useAgentState();
+
   const { setViewport } = useReactFlow();
 
   useEffect(() => {
@@ -82,49 +94,50 @@ export function FlowCanvas() {
   const onConnect = useCallback(
     (connection: Connection) => {
       console.info('onConnect called with connection:', connection);
-      useAgentStore.getState().addEdge({
+      addFlowEdge({
         source: connection.source as string,
         target: connection.target as string,
         animated: true,
+        style: { stroke: '#555' },
       });
     },
-    []
+    [addFlowEdge]
   );
 
   const onEdgeDelete = useCallback(
     (edge: Edge) => {
       console.info('onEdgeDelete called with edge:', edge);
-      useAgentStore.getState().removeEdge(edge.id);
+      removeEdge(edge.id);
     },
-    []
+    [removeEdge]
   );
 
   const onNodeDragStop = useCallback(
     (event: React.MouseEvent, node: any) => {
       console.info('onNodeDragStop triggered for node:', node);
-      useAgentStore.getState().updateNode(node.id, {
+      updateNode(node.id, {
         position: node.position,
       });
     },
-    []
+    [updateNode]
   );
 
   const onNodeDelete = useCallback(
     (event: React.MouseEvent, node: any) => {
       console.info('onNodeDelete triggered for node:', node);
-      useAgentStore.getState().removeNode(node.id);
+      removeNode(node.id);
     },
-    []
+    [removeNode]
   );
 
   const onNodesDelete = useCallback(
     (nodes: any[]) => {
       console.info('onNodesDelete triggered for nodes:', nodes.map(n => n.id));
       nodes.forEach(node => {
-        useAgentStore.getState().removeNode(node.id);
+        removeNode(node.id);
       });
     },
-    []
+    [removeNode]
   );
 
   const getNodeDependencies = useCallback((nodeId: string): string[] => {
@@ -152,7 +165,7 @@ export function FlowCanvas() {
     if (depth > MAX_DEPTH) {
       const errorMsg = `Maximum recursion depth (${MAX_DEPTH}) exceeded`;
       console.error(`Error: ${errorMsg} at node ${nodeId}`);
-      useAgentStore.getState().setExecutionResult({
+      setExecutionResult({
         nodeId,
         output: `[Error: ${errorMsg}]`,
         status: 'error',
@@ -172,7 +185,7 @@ export function FlowCanvas() {
     if (processingNodes.has(nodeId)) {
       const errorMsg = 'Circular dependency detected';
       console.error(`Cycle detected: Node ${nodeId} is already being processed. Aborting to prevent infinite recursion.`);
-      useAgentStore.getState().setExecutionResult({
+      setExecutionResult({
         nodeId,
         output: `[Error: ${errorMsg}]`,
         status: 'error',
@@ -213,7 +226,7 @@ export function FlowCanvas() {
       };
     }
 
-    useAgentStore.getState().setExecutionResult({
+    setExecutionResult({
       nodeId,
       output: '',
       status: 'running'
@@ -269,7 +282,7 @@ export function FlowCanvas() {
         console.info(`Generating agent response for node ${nodeId}`);
         try {
           // Keep track of nodes currently being processed with API calls to prevent race conditions
-          const currentlyProcessing = useAgentStore.getState().processingApiCalls || {};
+          const currentlyProcessing = processingApiCalls || {};
           
           // Check if this exact node is already being processed
           if (currentlyProcessing[nodeId]) {
@@ -282,7 +295,7 @@ export function FlowCanvas() {
                 let result;
                 if (combinedInput.length > 10000) {
                   console.info(`Node ${nodeId} has large input (${combinedInput.length} chars), using optimized processing`);
-                  const apiKey = useAgentStore.getState().apiKey[agent.provider];
+                  const apiKey = apiKeys[agent.provider];
                   result = await processWithChunkedStrategy(
                     agent.provider,
                     agent.model,
@@ -301,16 +314,16 @@ export function FlowCanvas() {
                 return result;
               } finally {
                 // Cleanup: remove this promise when done
-                const updatedProcessing = useAgentStore.getState().processingApiCalls || {};
+                const updatedProcessing = processingApiCalls || {};
                 delete updatedProcessing[nodeId];
-                useAgentStore.getState().setProcessingApiCalls(updatedProcessing);
+                setProcessingApiCalls(updatedProcessing);
               }
             })();
             
             // Store the promise in the store
             const updatedProcessing = {...currentlyProcessing};
             updatedProcessing[nodeId] = apiPromise;
-            useAgentStore.getState().setProcessingApiCalls(updatedProcessing);
+            setProcessingApiCalls(updatedProcessing);
             
             // Wait for the API call to complete
             output = await apiPromise;
@@ -340,20 +353,20 @@ export function FlowCanvas() {
           status: 'error' as const,
           error: 'Empty response received from the API'
         };
-        useAgentStore.getState().setExecutionResult(result);
+        setExecutionResult(result);
         console.info(`Node ${nodeId} processed with error: Empty response`);
         processingNodes.delete(nodeId);
         return result;
       }
 
-      useAgentStore.getState().setNodeOutput(nodeId, output);
+      setNodeOutput(nodeId, output);
       processedNodes.add(nodeId);
       const result = {
         nodeId,
         output,
         status: 'completed' as const
       };
-      useAgentStore.getState().setExecutionResult(result);
+      setExecutionResult(result);
       console.info(`Node ${nodeId} processed successfully`);
       processingNodes.delete(nodeId);
       return result;
@@ -361,14 +374,14 @@ export function FlowCanvas() {
       const errorMessage = error.message || 'Unknown error';
       console.error(`Error processing node ${nodeId}:`, error);
       const errorOutput = `[Error: ${errorMessage}]`;
-      useAgentStore.getState().setNodeOutput(nodeId, errorOutput);
+      setNodeOutput(nodeId, errorOutput);
       const result = {
         nodeId,
         output: errorOutput,
         status: 'error' as const,
         error: errorMessage
       };
-      useAgentStore.getState().setExecutionResult(result);
+      setExecutionResult(result);
       toast.error(`Error in node "${node.data.label}": ${errorMessage}`);
       processingNodes.delete(nodeId);
       return result;
@@ -504,7 +517,7 @@ export function FlowCanvas() {
         y: event.clientY - reactFlowBounds.top
       };
 
-      useAgentStore.getState().addNode({
+      addFlowEdge({
         type: 'agent',
         position,
         data: {
@@ -515,7 +528,7 @@ export function FlowCanvas() {
       });
       console.info('Node added via drop at position:', position, 'with data:', data);
     },
-    [reactFlowWrapper]
+    [reactFlowWrapper, addFlowEdge]
   );
 
   // Memoize expensive calculations
@@ -621,14 +634,14 @@ export function FlowCanvas() {
       if (dependencies.length === 0) {
         // If there are no dependencies, create a warning output
         const warningOutput = `[Test Data at ${currentTime}] This output node has no connections.`;
-        useAgentStore.getState().setNodeOutput(outputNode.id, warningOutput);
+        setNodeOutput(outputNode.id, warningOutput);
         
         const result = {
           nodeId: outputNode.id,
           output: warningOutput,
           status: 'completed' as const
         };
-        useAgentStore.getState().setExecutionResult(result);
+        setExecutionResult(result);
       } else {
         // Create combined test output from all upstream nodes
         const testInputs = dependencies.map(depId => {
@@ -637,15 +650,15 @@ export function FlowCanvas() {
           return `[Test data from ${depNode.data.label}]`;
         });
         
-        const combinedOutput = formatConcatenatedInputs(testInputs);
-        useAgentStore.getState().setNodeOutput(outputNode.id, combinedOutput);
+        const combinedOutput = formatCombinedInputs(testInputs);
+        setNodeOutput(outputNode.id, combinedOutput);
         
         const result = {
           nodeId: outputNode.id,
           output: combinedOutput,
           status: 'completed' as const
         };
-        useAgentStore.getState().setExecutionResult(result);
+        setExecutionResult(result);
       }
     });
     
@@ -730,15 +743,23 @@ export function FlowCanvas() {
               onClick={() => {
                 const selectedNode = nodes.find(n => n.selected);
                 if (selectedNode && selectedNode.data.agentId) {
-                  useAgentStore.getState().saveAgentToLibrary(selectedNode);
-                  toast.success('Agent saved to library');
+                  addFlowEdge({
+                    type: 'agent',
+                    position: selectedNode.position,
+                    data: {
+                      ...selectedNode.data,
+                      inputs: [],
+                      outputs: []
+                    }
+                  });
+                  toast.success('Agent saved to canvas');
                 } else {
                   toast.error('Please select an agent node first');
                 }
               }}
               className="shadow-md hover:shadow-lg transition-all"
             >
-              Save Agent to Library
+              Save Agent to Canvas
             </Button>
             <Button
               variant="outline"

@@ -82,4 +82,54 @@ jest.mock('tsyringe', () => {
     injectable: () => () => {},
     inject: () => () => {}
   };
-}); 
+});
+
+// Polyfill for TextEncoder and TextDecoder which are needed by LangChain packages
+const { TextEncoder, TextDecoder } = require('util');
+
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder;
+
+// Polyfill for ReadableStream
+const { Readable } = require('stream');
+class MockReadableStream {
+  constructor(options) {
+    this.readable = new Readable(options);
+  }
+  
+  getReader() {
+    const reader = {
+      read: async () => {
+        return new Promise((resolve) => {
+          this.readable.once('readable', () => {
+            const chunk = this.readable.read();
+            if (chunk === null) {
+              resolve({ done: true });
+            } else {
+              resolve({ value: chunk, done: false });
+            }
+          });
+          
+          this.readable.once('end', () => {
+            resolve({ done: true });
+          });
+        });
+      },
+      releaseLock: () => {},
+      cancel: () => this.readable.destroy()
+    };
+    return reader;
+  }
+}
+
+global.ReadableStream = MockReadableStream;
+
+// Polyfill for fetch
+const fetch = require('node-fetch');
+global.fetch = fetch;
+global.Headers = fetch.Headers;
+global.Request = fetch.Request;
+global.Response = fetch.Response;
+
+// Add OpenAI node shims
+require('openai/shims/node'); 

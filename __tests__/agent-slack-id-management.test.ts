@@ -42,28 +42,41 @@ describe('Agent Slack ID Management Tests', () => {
       registerFunction: jest.fn()
     };
 
+    // Create mock agents
+    const mockAgents = {
+      'U08GYV9AU9M': { id: 'U08GYV9AU9M', name: 'ProjectManager', role: 'PROJECT_MANAGER' },
+      'DEV001': { id: 'DEV001', name: 'Developer', role: 'DEVELOPER' }
+    };
+
     // Create additional mock services
     const mockHandoffMediator = {
       registerOrchestrator: jest.fn(),
       handleAgentHandoff: jest.fn(),
+      determineNextAgent: jest.fn().mockImplementation((channel: string, replyTs: string | null, message: any) => {
+        // Type the message parameter properly
+        if (message && message.mentions && message.mentions.length > 0) {
+          return mockAgents[message.mentions[0]];
+        }
+        return null;
+      }),
+      // Add missing properties required by HandoffMediator interface
       agentsByRole: {
-        DEVELOPER: [],
+        DEVELOPER: [mockAgents['DEV001']],
+        PROJECT_MANAGER: [mockAgents['U08GYV9AU9M']],
         CODE_REVIEWER: [],
-        PROJECT_MANAGER: [],
         QA_TESTER: [],
         TECHNICAL_WRITER: [],
         SECURITY_ENGINEER: [],
         DEVOPS_ENGINEER: []
       },
-      agents: {},
-      stateManager: {},
+      agents: mockAgents,
+      stateManager: { getState: jest.fn().mockResolvedValue(null) },
       initializeAgentsByRole: jest.fn(),
-      determineNextAgent: jest.fn().mockImplementation(() => Promise.resolve(undefined)),
-      recordHandoff: jest.fn(),
       findAgentByMention: jest.fn(),
       findAgentByKeyword: jest.fn(),
-      getAgentForState: jest.fn()
-    };
+      getAgentForState: jest.fn(),
+      recordHandoff: jest.fn()
+    } as any;
 
     const mockStateManager = {
       updateState: jest.fn(),
@@ -73,7 +86,8 @@ describe('Agent Slack ID Management Tests', () => {
 
     const mockLoopDetector = {
       checkForLoop: jest.fn(),
-      recordHandoff: jest.fn()
+      recordHandoff: jest.fn(),
+      recordAction: jest.fn().mockReturnValue(false)
     };
 
     const mockFunctionRegistry = {

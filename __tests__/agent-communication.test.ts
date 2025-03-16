@@ -34,10 +34,46 @@ describe('Agent Communication Tests', () => {
     mockAIService.generateAgentResponse = jest.fn();
     mockAIService.extractFunctionResults = jest.fn().mockReturnValue('Function results');
 
+    // Create mock agents
+    const mockAgents = {
+      'U08GYV9AU9M': { id: 'U08GYV9AU9M', name: 'ProjectManager', role: 'PROJECT_MANAGER' },
+      'DEV001': { id: 'DEV001', name: 'Developer', role: 'DEVELOPER' }
+    };
+
     // Create mock services for the required parameters
-    const mockHandoffMediator = { handleAgentHandoff: jest.fn() } as any;
+    const mockHandoffMediator = {
+      handleAgentHandoff: jest.fn(),
+      determineNextAgent: jest.fn().mockImplementation((channel: string, replyTs: string | null, message: any) => {
+        if (message && message.mentions && message.mentions.length > 0) {
+          return mockAgents[message.mentions[0]];
+        }
+        return null;
+      }),
+      agentsByRole: {
+        DEVELOPER: [mockAgents['DEV001']],
+        PROJECT_MANAGER: [mockAgents['U08GYV9AU9M']],
+        CODE_REVIEWER: [],
+        QA_TESTER: [],
+        TECHNICAL_WRITER: [],
+        SECURITY_ENGINEER: [],
+        DEVOPS_ENGINEER: []
+      },
+      agents: mockAgents,
+      stateManager: { 
+        getState: jest.fn().mockResolvedValue({ stage: 'issue_created', issueNumber: 42 }) 
+      },
+      initializeAgentsByRole: jest.fn(),
+      findAgentByMention: jest.fn(),
+      findAgentByKeyword: jest.fn(),
+      getAgentForState: jest.fn(),
+      recordHandoff: jest.fn()
+    } as any;
     const mockStateManager = { getWorkflowState: jest.fn(), updateWorkflowState: jest.fn() } as any;
-    const mockLoopDetector = { detectLoop: jest.fn(), resetLoopCounter: jest.fn() } as any;
+    const mockLoopDetector = {
+      checkForLoop: jest.fn(),
+      recordHandoff: jest.fn(),
+      recordAction: jest.fn().mockReturnValue(false)
+    } as any;
     const mockFunctionRegistry = { registerFunction: jest.fn(), getFunctions: jest.fn() } as any;
     const mockTokenManager = { 
       getOptimizedPrompt: jest.fn(), 

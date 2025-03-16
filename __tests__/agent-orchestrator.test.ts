@@ -11,10 +11,22 @@ const mockAIService = {
   extractFunctionResults: jest.fn()
 };
 
-// Create additional mock services
-const mockHandoffMediator = {
-  registerOrchestrator: jest.fn(),
-  handleAgentHandoff: jest.fn()
+// Create mock agents
+const mockAgents = {
+  'U08GYV9AU9M': { id: 'U08GYV9AU9M', name: 'ProjectManager', role: 'PROJECT_MANAGER' },
+  'DEV001': { id: 'DEV001', name: 'Developer', role: 'DEVELOPER' }
+};
+
+// Mock services
+const mockHandoffMediator = { 
+  handleAgentHandoff: jest.fn(),
+  determineNextAgent: jest.fn().mockImplementation((channel, replyTs, message) => {
+    // Default implementation that uses the first mentioned agent or returns null
+    if (message.mentions && message.mentions.length > 0) {
+      return mockAgents[message.mentions[0]];
+    }
+    return null;
+  })
 };
 
 const mockStateManager = {
@@ -25,7 +37,8 @@ const mockStateManager = {
 
 const mockLoopDetector = {
   checkForLoop: jest.fn(),
-  recordHandoff: jest.fn()
+  recordHandoff: jest.fn(),
+  recordAction: jest.fn().mockReturnValue(false)
 };
 
 const mockFunctionRegistry = {

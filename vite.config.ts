@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // Use browser-compatible versions of server modules
+      "events": path.resolve(__dirname, "./src/shims/events-shim.js"),
+      // Alias specific modules to their browser versions
+      "./services/eventBus": path.resolve(__dirname, "./src/services/eventBus.browser.ts"),
     },
   },
   build: {

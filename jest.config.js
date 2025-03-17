@@ -1,21 +1,12 @@
+/** @type {import('ts-jest').JestConfigWithTsJest} */
 export default {
   preset: 'ts-jest',
-  testEnvironment: 'jsdom',
-  extensionsToTreatAsEsm: ['.ts', '.tsx'],
+  testEnvironment: 'node',
+  transform: {
+    '^.+\\.tsx?$': 'ts-jest',
+  },
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
-    '^../src/services/ai/LangChainIntegration$': '<rootDir>/__tests__/mocks/LangChainIntegration.ts',
   },
-  transform: {
-    '^.+\\.tsx?$': ['ts-jest', {
-      tsconfig: 'tsconfig.jest.json',
-      useESM: true,
-    }],
-  },
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  moduleDirectories: ['node_modules', 'src'],
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    '/__tests__/utils/MockHandoffMediator.ts'
-  ],
-};
+  testMatch: ['**/__tests__/**/*.test.ts'],
+}; 

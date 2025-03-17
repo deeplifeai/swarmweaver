@@ -124,9 +124,8 @@ export class HandoffMediator {
           return alternateAgent;
         }
         
-        // If no alternates available, use the mentioned agent anyway
-        this.markAgentBusy(explicitAgent.id);
-        return explicitAgent;
+        // If no alternates available, return null
+        return null;
       }
     }
 
@@ -134,7 +133,7 @@ export class HandoffMediator {
     const currentState = await this.stateManager.getState(channelId, threadTs);
     if (currentState) {
       const stateBasedAgent = await this.getAgentForState(currentState);
-      if (stateBasedAgent) {
+      if (stateBasedAgent && this.isAgentAvailable(stateBasedAgent.id)) {
         if (DEBUG_HANDOVER) {
           console.log(`[HANDOFF] State-based routing to: ${stateBasedAgent.name} for state: ${currentState.stage}`);
         }
@@ -149,7 +148,6 @@ export class HandoffMediator {
       if (DEBUG_HANDOVER) {
         console.log(`[HANDOFF] Keyword-based routing to: ${keywordAgent.name}`);
       }
-      this.markAgentBusy(keywordAgent.id);
       return keywordAgent;
     }
 
@@ -212,14 +210,12 @@ export class HandoffMediator {
           // Find an available agent with this role
           const availableAgent = this.findAvailableAgentByRole(role as AgentRole);
           if (availableAgent) {
+            this.markAgentBusy(availableAgent.id);
             return availableAgent;
           }
           
-          // If no available agents, return the first agent with this role
-          const agentsForRole = this.agentsByRole[role as AgentRole];
-          if (agentsForRole && agentsForRole.length > 0) {
-            return agentsForRole[0];
-          }
+          // If no available agents, continue to next role
+          break;
         }
       }
     }

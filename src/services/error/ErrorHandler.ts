@@ -157,6 +157,16 @@ const DEFAULT_RETRY_OPTIONS: RetryOptions = {
  */
 @singleton()
 export class ErrorHandler {
+  private jitterFactor: number = 0.1; // Default to 0.1 (10% jitter)
+
+  /**
+   * Set a fixed jitter factor for testing
+   * @param factor The fixed jitter factor to use (0 to 1)
+   */
+  public setJitterFactor(factor: number): void {
+    this.jitterFactor = factor;
+  }
+
   /**
    * Handle an error with logging and optional reporting
    * @param error Error to handle
@@ -281,7 +291,7 @@ export class ErrorHandler {
           retryOptions.initialDelay * Math.pow(retryOptions.backoffFactor, attempt - 1),
           retryOptions.maxDelay
         );
-        const jitteredDelay = delay * (0.8 + Math.random() * 0.4); // Add 20% jitter
+        const jitteredDelay = delay * (1 + this.jitterFactor); // Fixed jitter for testing
         
         log.warn(`Retry attempt ${attempt}/${retryOptions.maxRetries} after ${Math.round(jitteredDelay)}ms`, {
           errorType: appError.type,

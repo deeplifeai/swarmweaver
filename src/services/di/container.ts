@@ -7,12 +7,13 @@ import { WorkflowStateManager } from '../state/WorkflowStateManager';
 import { MemoryStateStorage } from '../state/WorkflowStateManager';
 import { LoopDetector } from '../agents/LoopDetector';
 import { FunctionRegistry } from '../ai/FunctionRegistry';
-import { estimateTokenCount, chunkText } from '@/utils/tokenManager';
 import { AgentOrchestrator } from '../ai/AgentOrchestrator';
 import { LoggingService } from '../logging/LoggingService';
-import { CacheFactory, CacheService } from '../cache/CacheFactory';
+import { CacheFactory } from '../cache/CacheFactory';
 import { ErrorHandler } from '../error/ErrorHandler';
-import { config } from '@/config/config';
+import { LoggingServiceFactory } from '../logging/LoggingServiceFactory';
+import { ILoggingService } from '../logging/LoggingServiceFactory';
+import { ConversationManager } from '../ConversationManager';
 
 // Register singleton services
 container.registerSingleton('ErrorHandler', ErrorHandler);
@@ -28,11 +29,20 @@ container.registerSingleton('WorkflowStateManager', WorkflowStateManager);
 
 // Register services with configuration
 container.register('SlackService', {
-  useFactory: () => new SlackService()
+  useFactory: () => new SlackService(
+    container.resolve<ILoggingService>('LoggingService'),
+    container.resolve<AgentOrchestrator>('AgentOrchestrator')
+  )
 });
 
+// Register AIService with dependencies
 container.register('AIService', {
-  useFactory: () => new AIService()
+  useFactory: (dependencyContainer) => {
+    const conversationManager = dependencyContainer.resolve<ConversationManager>('ConversationManager');
+    const loopDetector = dependencyContainer.resolve<LoopDetector>('LoopDetector');
+    const functionRegistry = dependencyContainer.resolve<FunctionRegistry>('FunctionRegistry');
+    return new AIService(conversationManager, loopDetector, functionRegistry);
+  }
 });
 
 // Register cache service
@@ -82,6 +92,11 @@ container.register('UpdateHandoffMediator', {
     return true;
   }
 });
+
+// Register services
+container.register('ICacheService', { useValue: CacheFactory.getInstance() });
+container.register('ILoggingService', { useValue: LoggingServiceFactory.getInstance() });
+container.register('ErrorHandler', { useValue: new ErrorHandler() });
 
 // Initialize the container
 export function initializeContainer(): void {

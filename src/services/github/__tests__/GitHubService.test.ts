@@ -90,7 +90,9 @@ describe('GitHubService', () => {
       expect(exists).toBe(true);
 
       // Test non-existing branch
-      (mockOctokit.git.getRef as unknown as MockFunction).mockRejectedValueOnce({ status: 404 });
+      const error = new Error('Not Found') as any;
+      error.status = 404;
+      (mockOctokit.git.getRef as unknown as MockFunction).mockRejectedValueOnce(error);
       const notExists = await githubService.branchExists(branchName);
       expect(notExists).toBe(false);
     });

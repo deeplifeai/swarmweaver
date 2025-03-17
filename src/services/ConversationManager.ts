@@ -1,6 +1,7 @@
 import { AIService } from './ai/AIService';
 import { OpenAIMessage } from '@/types/openai/OpenAITypes';
 import { eventBus, EventType } from '@/services/eventBus';
+import { Agent, AgentRole } from '@/types/agents/Agent';
 
 interface ConversationSummary {
   summary: string;
@@ -170,23 +171,31 @@ ${formattedMessages}
 
 SUMMARY:`;
 
+    // Create a summarization agent
+    const summarizationAgent: Agent = {
+      id: 'summarizer',
+      name: 'Conversation Summarizer',
+      role: AgentRole.DEVELOPER,
+      systemPrompt: 'You are a helpful assistant that creates accurate, concise summaries of conversations.',
+      functions: [],
+      description: 'Specialized in creating concise and accurate summaries of conversations.',
+      personality: 'Precise and concise'
+    };
+
     // Implement retry logic
     let attemptsRemaining = this.MAX_RETRY_ATTEMPTS;
     let lastError = null;
     
     while (attemptsRemaining > 0) {
       try {
-        // Use a model optimized for summarization
-        const summaryText = await this.aiService.generateText(
-          'openai',
-          'gpt-3.5-turbo',
-          'You are a helpful assistant that creates accurate, concise summaries of conversations.',
+        const response = await this.aiService.generateAgentResponse(
+          summarizationAgent,
           prompt
         );
         
         // Store the new summary
         this.summaries[conversationId] = {
-          summary: summaryText,
+          summary: response.response,
           lastSummarizedMessageIndex: endIndex - 1,
           lastUpdated: new Date(),
           failedAttempts: 0 // Reset failed attempts on success
@@ -248,14 +257,16 @@ SUMMARY:`;
     const conversationCount = Object.keys(this.conversations).length;
     let totalMessages = 0;
     
-    for (const conversation of Object.values(this.conversations)) {
-      totalMessages += conversation.length;
-    }
+    Object.values(this.conversations).forEach(messages => {
+      totalMessages += messages.length;
+    });
+    
+    const summaryCount = Object.keys(this.summaries).length;
     
     return {
       conversations: conversationCount,
       totalMessages,
-      summaries: Object.keys(this.summaries).length
+      summaries: summaryCount
     };
   }
   

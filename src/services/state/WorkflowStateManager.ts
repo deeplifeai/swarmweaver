@@ -1,4 +1,3 @@
-import { EventEmitter } from 'events';
 import { eventBus, EventType, WorkflowTransitionEvent } from '@/services/eventBus';
 import { AgentRole } from '@/types/agents/Agent';
 

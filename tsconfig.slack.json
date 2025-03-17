@@ -1,0 +1,55 @@
+{
+  "compilerOptions": {
+    "outDir": "dist",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "lib": ["ES2020"],
+    "types": ["node"],
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": [
+    "src/slack-bot.ts",
+    "src/slack/**/*",
+    "src/services/**/*",
+    "src/config/**/*",
+    "src/types/**/*",
+    "src/utils/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/components/**/*",
+    "src/pages/**/*",
+    "src/hooks/**/*",
+    "src/context/**/*",
+    "src/styles/**/*",
+    "src/assets/**/*",
+    "src/shims/**/*",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/__tests__/**/*"
+  ]
+} 

@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import { config } from '@/config/config';
 
 // Define message interface without conflicting with the one in SlackService
 export interface TestableSlackMessage {
@@ -22,17 +21,8 @@ export enum TestEventType {
 export const testEventBus = new EventEmitter();
 
 export class TestableSlackService {
-  private apiKey: string;
-  private static instance: TestableSlackService;
-  
   constructor() {
-    this.apiKey = config.slack.botToken || 'test-token';
-    
-    if (TestableSlackService.instance) {
-      return TestableSlackService.instance;
-    }
-    
-    TestableSlackService.instance = this;
+    // No initialization needed
   }
   
   async start(): Promise<void> {

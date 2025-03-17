@@ -244,8 +244,7 @@ export class GitHubService {
         
         return newCommitResponse.data;
       } catch (error) {
-        // Check if the error is because the repository is empty
-        if (error.message && error.message.includes('Git Repository is empty')) {
+        if (error instanceof Error && error.message && error.message.includes('Git Repository is empty')) {
           console.log(`Repository ${owner}/${repo} is empty. Initializing with README...`);
           
           // Initialize the repository and then retry the commit
@@ -348,8 +347,7 @@ This repository was automatically initialized by the SwarmWeaver system.
       // If we get here, the branch exists
       return true;
     } catch (error) {
-      // If we get a 404, the branch doesn't exist
-      if (error.status === 404) {
+      if (error instanceof Error && 'status' in error && error.status === 404) {
         return false;
       }
       

@@ -1,4 +1,4 @@
-import { AgentFunction, FunctionRegistry } from './FunctionRegistry';
+import { FunctionRegistry } from './FunctionRegistry';
 import { Agent } from '@/types/agents/Agent';
 import { ChatOpenAI } from "@langchain/openai";
 import { eventBus, EventType } from '@/services/eventBus';
@@ -256,11 +256,9 @@ export class LangChainExecutor {
         error: false
       };
     } catch (error: any) {
-      const userMessage = "I encountered an error processing your request. Please try again or simplify your request.";
-      this.logError("[LangChain] Error running executor", error, userMessage);
-      
+      console.error('Error in LangChain execution:', error);
       return {
-        output: userMessage,
+        output: `I encountered an error while processing your request: ${error.message || 'Unknown error'}`,
         toolCalls: [],
         error: true
       };
@@ -277,9 +275,6 @@ export class LangChainExecutor {
   } {
     const functionName = this.extractFunctionName(toolCall);
     const functionArgs = this.extractFunctionArgs(toolCall);
-    
-    // Technical error details for logging
-    const technicalDetails = error.message || 'Unknown error';
     
     // Create a simplified user-friendly message
     let userMessage = `An error occurred executing '${functionName}'.`;

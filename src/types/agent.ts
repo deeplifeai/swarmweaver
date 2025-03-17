@@ -1,5 +1,11 @@
 export type AIModel = 
   // OpenAI models
+  | 'gpt-4'
+  | 'gpt-4-turbo-preview'
+  | 'gpt-3.5-turbo'
+  | 'claude-3-opus-20240229'
+  | 'claude-3-sonnet-20240229'
+  | 'claude-3-haiku-20240307'
   | 'gpt-4.5-preview' 
   | 'gpt-4o' 
   | 'o1-mini' 
@@ -11,7 +17,7 @@ export type AIModel =
   | 'sonar-pro'
   | 'sonar';
 
-export type AIProvider = 'openai' | 'perplexity';
+export type AIProvider = 'openai' | 'anthropic';
 
 export interface Agent {
   id: string;

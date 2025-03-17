@@ -1,23 +1,34 @@
-import { 
-  OpenAIMessage, 
-  OpenAIFunctionDefinition, 
-  OpenAITool 
-} from '@/types/openai/OpenAITypes';
+import { Agent, AgentFunction } from '@/types/agents/Agent';
+import { OpenAIMessage } from '@/types/openai/OpenAITypes';
+import { ConversationManager } from '../ConversationManager';
+import { LoopDetector } from '../agents/LoopDetector';
+import { runWithLangChain } from './LangChainIntegration';
 import { config } from '@/config/config';
-import { Agent, AgentFunction, AgentRole } from '@/types/agents/Agent';
 import { FunctionRegistry } from './FunctionRegistry';
-import { LangChainExecutor, createLangChainExecutor } from './LangChainIntegration';
+import { OpenAI } from 'openai';
+import { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 
 /**
- * AIService acts as a thin wrapper around the LangChain integration,
- * delegating all AI model interactions to a single integration point.
+ * Service for interacting with AI providers
  */
 export class AIService {
+  private conversationManager: ConversationManager;
+  private loopDetector: LoopDetector;
   private functionRegistry: FunctionRegistry;
-  private executorCache: Map<string, LangChainExecutor> = new Map();
+  private openai: OpenAI;
   
-  constructor() {
-    this.functionRegistry = new FunctionRegistry();
+  constructor(
+    conversationManager: ConversationManager,
+    loopDetector: LoopDetector,
+    functionRegistry: FunctionRegistry
+  ) {
+    this.conversationManager = conversationManager;
+    this.loopDetector = loopDetector;
+    this.functionRegistry = functionRegistry;
+    this.openai = new OpenAI({
+      apiKey: config.openai.apiKey,
+      dangerouslyAllowBrowser: process.env.NODE_ENV === 'test'
+    });
   }
   
   /**
@@ -35,49 +46,91 @@ export class AIService {
   /**
    * Generate a response for an agent, delegating to LangChain
    * @param agent The agent to generate a response for
-   * @param userMessage The user's message
+   * @param userPrompt The user's prompt
    * @param conversationHistory Optional conversation history
    * @returns The generated response and any function calls
    */
   async generateAgentResponse(
-    agent: Agent, 
-    userMessage: string, 
-    conversationHistory: OpenAIMessage[] = []
-  ): Promise<{ response: string; functionCalls: any[] }> {
+    agent: Agent,
+    userPrompt: string,
+    _conversationHistory: OpenAIMessage[] = []
+  ): Promise<{ response: string; functionCalls?: any[] }> {
     try {
-      console.log(`Generating response for agent ${agent.name} with role ${agent.role}`);
+      // Get conversation history using the new ConversationManager
+      const conversationId = `agent:${agent.id}`;
+      const history = await this.conversationManager.getConversationHistory(conversationId);
       
-      // Create an executor or get from cache
-      let executor = this.executorCache.get(agent.id);
-      if (!executor) {
-        executor = createLangChainExecutor(
-          agent,
-          this.functionRegistry,
-          config.openai.apiKey
-        );
-        this.executorCache.set(agent.id, executor);
+      // Record action to detect potential loops
+      const isProcessingLoop = this.loopDetector.recordAction(
+        conversationId, 
+        `process:${agent.id}`
+      );
+      
+      if (isProcessingLoop) {
+        console.warn(`Potential processing loop detected for agent ${agent.id}, adding loop warning to prompt`);
       }
       
-      // Process conversation history if provided
-      // This would need to be handled by incorporating it into the prompt or
-      // using LangChain's memory capabilities
+      // Use the new LangChain integration for advanced capabilities
+      const useLangChain = config.features?.useLangChain === true;
       
-      // Run the executor
-      const result = await executor.run(userMessage);
+      let response: string;
+      let toolCalls: any[] = [];
       
-      // Convert LangChain tool calls to our format for compatibility
-      const functionCalls = result.toolCalls.map(toolCall => ({
-        name: toolCall.name,
-        arguments: JSON.parse(toolCall.arguments),
-        result: JSON.parse(toolCall.result)
-      }));
+      if (useLangChain) {
+        console.log(`Using LangChain for agent ${agent.id}`);
+        const result = await runWithLangChain(
+          agent,
+          this.functionRegistry,
+          userPrompt,
+          config.openai.apiKey
+        );
+        
+        response = result.output;
+        toolCalls = result.toolCalls;
+        
+        // If there were tool calls, append their results to the response
+        if (toolCalls && toolCalls.length > 0) {
+          const toolResults = toolCalls.map(call => 
+            `Function ${call.name} was called with ${call.arguments} and returned: ${call.result}`
+          ).join('\n\n');
+          
+          response += `\n\n--- Function Call Results ---\n${toolResults}`;
+        }
+      } else {
+        // Use standard OpenAI completion
+        const messages: ChatCompletionMessageParam[] = [
+          { role: 'system', content: agent.systemPrompt || agent.description },
+          ...history.map(msg => ({
+            role: msg.role as 'system' | 'user' | 'assistant',
+            content: msg.content
+          })),
+          { role: 'user', content: userPrompt }
+        ];
+
+        const completion = await this.openai.chat.completions.create({
+          model: config.openai.models.default,
+          messages,
+          temperature: 0.7,
+          max_tokens: 1000
+        });
+
+        response = completion.choices[0].message.content || '';
+        toolCalls = [];
+      }
+      
+      // After processing, update the conversation history with the new messages
+      await this.conversationManager.updateConversationHistory(
+        conversationId,
+        userPrompt,
+        response
+      );
       
       return {
-        response: result.output,
-        functionCalls
+        response,
+        functionCalls: toolCalls
       };
     } catch (error) {
-      console.error('Error generating agent response:', error);
+      console.error(`Error generating agent response: ${error instanceof Error ? error.message : 'Unknown error'}`);
       throw error;
     }
   }
@@ -145,7 +198,7 @@ export class AIService {
           if (prCount === 0) {
             return "No pull requests found.";
           }
-          const prInfo = call.result.slice(0, 5).map((pr) => {
+          const prInfo = call.result.slice(0, 5).map((pr: { number: number; title: string; state: string }) => {
             return `• #${pr.number} - ${pr.title} (${pr.state})`;
           }).join('\n');
           const moreInfo = prCount > 5 ? `\nAnd ${prCount - 5} more...` : '';
@@ -166,48 +219,5 @@ export class AIService {
     }
     
     return results;
-  }
-  
-  /**
-   * Generate simple text using LangChain
-   * @param provider The provider to use (currently only OpenAI supported)
-   * @param model The model to use
-   * @param systemPrompt The system prompt
-   * @param userPrompt The user's prompt
-   * @returns The generated text
-   */
-  async generateText(
-    provider: string,
-    model: string,
-    systemPrompt: string,
-    userPrompt: string
-  ): Promise<string> {
-    try {
-      // Create a minimal dummy agent for text generation
-      const dummyAgent: Agent = {
-        id: 'text-generation',
-        name: 'Text Generator',
-        role: AgentRole.DEVELOPER,
-        systemPrompt: systemPrompt,
-        functions: [],
-        description: 'Text generation agent',
-        personality: 'Helpful and concise'
-      };
-      
-      // Create executor for the dummy agent
-      const executor = createLangChainExecutor(
-        dummyAgent,
-        this.functionRegistry,
-        config.openai.apiKey
-      );
-      
-      // Run the executor
-      const result = await executor.run(userPrompt);
-      
-      return result.output;
-    } catch (error) {
-      console.error('Error in text generation:', error);
-      return `Error generating text: ${error instanceof Error ? error.message : 'Unknown error'}`;
-    }
   }
 } 

@@ -1,13 +1,11 @@
 import { Agent, AgentMessage, AgentRegistry } from '@/types/agents/Agent';
-import { OpenAIMessage } from '@/types/openai/OpenAITypes';
-import { SlackService } from '@/services/slack/SlackService';
-import { AIService } from '@/services/ai/AIService';
+import { SlackService } from '../slack/SlackService';
+import { AIService } from './AIService';
 import { eventBus, EventType } from '@/services/eventBus';
 import { HandoffMediator } from '../agents/HandoffMediator';
 import { WorkflowStateManager } from '../state/WorkflowStateManager';
 import { LoopDetector } from '../agents/LoopDetector';
 import { FunctionRegistry } from './FunctionRegistry';
-import { estimateTokenCount, chunkText } from '../../utils/tokenManager';
 import { runWithLangChain } from './LangChainIntegration';
 import { config } from '@/config/config';
 import { ConversationManager } from '../ConversationManager';
@@ -20,7 +18,6 @@ export class AgentOrchestrator {
   private slackService: SlackService;
   private aiService: AIService;
   private agents: AgentRegistry = {};
-  private conversations: Record<string, OpenAIMessage[]> = {};
   private handoffMediator: HandoffMediator;
   private stateManager: WorkflowStateManager;
   private loopDetector: LoopDetector;
@@ -90,7 +87,7 @@ export class AgentOrchestrator {
   async handleMessage(message: AgentMessage) {
     try {
       console.log('Handling message:', message);
-      const conversationId = this.getConversationId(message.channel, message.replyToMessageId);
+      const conversationId = this.getConversationId(message.channel, message.replyToMessageId || null);
 
       // Record action to detect potential loops
       const isPotentialLoop = this.loopDetector.recordAction(
@@ -120,10 +117,12 @@ export class AgentOrchestrator {
         
         // Fallback to default agent or send a helpful response
         await this.slackService.sendMessage({
+          type: 'message',
           channel: message.channel,
           thread_ts: message.replyToMessageId,
           text: "I'm not sure which agent should handle this request. Could you please tag a specific agent or clarify your request?",
-          userId: "SYSTEM"
+          user: "SYSTEM",
+          ts: new Date().getTime().toString()
         });
       }
     } catch (error) {
@@ -138,20 +137,11 @@ export class AgentOrchestrator {
   private async processAgentRequest(agent: Agent, message: AgentMessage, conversationId?: string) {
     // Get conversation ID if not provided
     if (!conversationId) {
-      conversationId = this.getConversationId(message.channel, message.replyToMessageId);
+      conversationId = this.getConversationId(message.channel, message.replyToMessageId || null);
     }
     
     // Get conversation history using the new ConversationManager
     const conversationHistory = await this.conversationManager.getConversationHistory(conversationId);
-    
-    // Format the message for the AI service
-    const userMessage: OpenAIMessage = {
-      role: 'user',
-      content: message.content
-    };
-    
-    // Prepare the agent's system prompt, potentially optimizing it
-    const systemPrompt = agent.systemPrompt;
     
     try {
       // Record action to detect potential loops
@@ -162,7 +152,6 @@ export class AgentOrchestrator {
       
       if (isProcessingLoop) {
         console.warn(`Potential processing loop detected for agent ${agent.id}, adding loop warning to prompt`);
-        // Could modify the prompt here to warn about potential loops
       }
       
       // Use the new LangChain integration for advanced capabilities
@@ -213,10 +202,12 @@ export class AgentOrchestrator {
       
       // Send response to Slack
       await this.slackService.sendMessage({
+        type: 'message',
         channel: message.channel,
         thread_ts: message.replyToMessageId,
         text: response,
-        userId: agent.id
+        user: agent.id,
+        ts: new Date().getTime().toString()
       });
       
       // Check for mentions to other agents in the response
@@ -241,10 +232,12 @@ export class AgentOrchestrator {
       
       // Send error message to Slack
       await this.slackService.sendMessage({
+        type: 'message',
         channel: message.channel,
         thread_ts: message.replyToMessageId,
-        text: `I encountered an error processing your request: ${error.message}`,
-        userId: agent.id
+        text: `I encountered an error processing your request: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        user: agent.id,
+        ts: new Date().getTime().toString()
       });
       
       // Emit error event
@@ -334,10 +327,12 @@ export class AgentOrchestrator {
                 
                 // Send handoff message
                 await this.slackService.sendMessage({
+                  type: 'message',
                   channel: channelId,
                   thread_ts: threadTs,
                   text: `I've created a pull request: ${data.html_url}\n\nNow, <@${codeReviewer.id}>, could you please review this PR?`,
-                  userId: agentId
+                  user: agentId,
+                  ts: new Date().getTime().toString()
                 });
               }
             }

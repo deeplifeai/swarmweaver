@@ -1,7 +1,6 @@
 import { GitHubService } from './GitHubService';
 import { OpenAIFunctionDefinition } from '@/types/openai/OpenAITypes';
 import { AgentFunction } from '@/types/agents/Agent';
-import { config } from '@/config/config';
 import { eventBus, EventType } from '@/utils/EventBus';
 
 // Add a DEBUG_WORKFLOW constant for controlling debugging output
@@ -62,7 +61,7 @@ class WorkflowMemory {
     return this.state;
   }
 
-  getContextForAgent(agentId: string) {
+  getContextForAgent() {
     return {
       state: this.state,
       recentMessages: this.conversationHistory.slice(-5),
@@ -124,38 +123,6 @@ class WorkflowMemory {
 
 // Replace the workflowState object with the WorkflowMemory class
 const workflowState = new WorkflowMemory();
-
-// Mock issue data for issue #3 as a fallback
-const mockIssue3 = {
-  number: 3,
-  title: "Implement user authentication system",
-  body: `# User Authentication System
-
-## Requirements:
-1. Create a simple authentication system with login and registration functionality
-2. Implement password hashing for security
-3. Add session management
-4. Create protected routes that require authentication
-5. Add logout functionality
-
-## Technical Details:
-- Use JWT for authentication tokens
-- Store user data securely
-- Add proper validation for user inputs
-- Include error handling
-- Write necessary tests
-
-## Acceptance Criteria:
-- Users can register with email and password
-- Users can login and receive a token
-- Protected routes check for valid authentication
-- Users can log out and invalidate their session
-- All inputs are properly validated`,
-  html_url: "https://github.com/repository-owner/repository-name/issues/3",
-  state: "open",
-  assignees: [],
-  labels: ["feature", "authentication", "priority-high"]
-};
 
 // Initialize the GitHub service with proper error handling
 export let githubService: any;
@@ -223,7 +190,7 @@ export const createIssueFunction: AgentFunction = {
       description: 'Optional list of labels to apply to the issue' 
     }
   },
-  handler: async (params, agentId) => {
+  handler: async (params) => {
     try {
       // If assignees are provided, add them to the body instead of setting them in GitHub
       let bodyWithAssignees = params.body;
@@ -231,7 +198,7 @@ export const createIssueFunction: AgentFunction = {
       if (params.assignees && params.assignees.length > 0) {
         // Add a section at the end of the body mentioning assigned agents
         bodyWithAssignees += `\n\n## Assigned Agents\n`;
-        params.assignees.forEach(agent => {
+        params.assignees.forEach((agent: string) => {
           bodyWithAssignees += `- ${agent}\n`;
         });
       }
@@ -253,7 +220,7 @@ export const createIssueFunction: AgentFunction = {
       console.error('Error creating issue:', error);
       return {
         success: false,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
   }
@@ -262,108 +229,33 @@ export const createIssueFunction: AgentFunction = {
 // Create Pull Request Function
 export const createPullRequestFunction: AgentFunction = {
   name: 'createPullRequest',
-  description: 'Creates a new pull request in the GitHub repository',
+  description: 'Creates a pull request in the GitHub repository',
   parameters: {
     title: { type: 'string', description: 'The title of the pull request' },
-    body: { type: 'string', description: 'The detailed description of the pull request' },
-    head: { type: 'string', description: 'The name of the branch where your changes are implemented' },
-    base: { type: 'string', description: 'The name of the branch you want the changes pulled into' },
-    draft: { type: 'boolean', description: 'Optional flag to indicate if the pull request is a draft' },
-    assignees: { 
-      type: 'array', 
-      items: { type: 'string' },
-      description: 'Optional list of agents to mention in the PR body (will not be set as GitHub assignees)' 
-    }
+    body: { type: 'string', description: 'The description of the pull request' },
+    head: { type: 'string', description: 'The name of the branch containing your changes' },
+    base: { type: 'string', description: 'The branch you want your changes pulled into (usually main)' }
   },
-  handler: async (params, agentId) => {
+  handler: async (params, _agentId) => {
     try {
-      console.log(`Agent ${agentId} is creating a pull request from ${params.head} to ${params.base || 'main'}`);
-      
-      // First check if the head branch exists
-      const branchExists = await githubService.branchExists(params.head);
-      if (!branchExists) {
-        console.error(`Branch ${params.head} does not exist for PR creation`);
-        
-        // Try to create the branch automatically, though this likely won't help without commits
-        try {
-          console.log(`Attempting to create branch ${params.head} automatically...`);
-          await githubService.createBranch(params.head, 'main');
-          console.log(`Branch ${params.head} created, but it has no commits. You need to commit changes to it.`);
-          
-          return {
-            success: false,
-            error: `⚠️ CRITICAL WORKFLOW ERROR: Branch '${params.head}' was created but has no commits. 
-You MUST follow this exact workflow:
-1. First create a branch with createBranch({name: "${params.head}"})
-2. Then commit your changes with createCommit({files: [...], branch: "${params.head}"})
-3. Only then create a PR with createPullRequest`
-          };
-        } catch (branchError) {
-          return {
-            success: false,
-            error: `⚠️ CRITICAL WORKFLOW ERROR: Branch '${params.head}' doesn't exist. 
-You MUST follow this exact workflow:
-1. First create a branch with createBranch({name: "${params.head}"})
-2. Then commit your changes with createCommit({files: [...], branch: "${params.head}"})
-3. Only then create a PR with createPullRequest`
-          };
-        }
-      }
-      
-      // If assignees are provided, add them to the PR body
-      let bodyWithAssignees = params.body;
-      
-      if (params.assignees && params.assignees.length > 0) {
-        // Add a section at the end of the body mentioning assigned agents
-        bodyWithAssignees += `\n\n## Assigned Agents\n`;
-        params.assignees.forEach(agent => {
-          bodyWithAssignees += `- ${agent}\n`;
-        });
-      }
-      
-      // If we made it here, the branch exists, so create the PR
       const result = await githubService.createPullRequest({
         title: params.title,
-        body: bodyWithAssignees,
+        body: params.body,
         head: params.head,
-        base: params.base || 'main',
-        draft: params.draft
+        base: params.base || 'main'
       });
       
-      // Create the success response object
-      const response = {
+      return {
         success: true,
-        pr_number: result.number,
+        pull_request_number: result.number,
         url: result.html_url,
-        message: `Pull request #${result.number} created successfully`,
-        workflow_hint: `PR has been created! Now you should hand over to CodeReviewer by mentioning them with @CodeReviewer to review this PR.`
+        message: `Pull request #${result.number} created successfully`
       };
-
-      // Update the message to explicitly tell the Developer to hand off to CodeReviewer
-      if (workflowState.autoProgressWorkflow && workflowState.currentIssueNumber) {
-        console.log(`Auto-progressing workflow to review the pull request for issue #${workflowState.currentIssueNumber}`);
-
-        // Update the hint to emphasize the handoff to CodeReviewer
-        response.workflow_hint = `⚠️ IMPORTANT: Your PR is created! You MUST now hand off to the CodeReviewer by mentioning them with @CodeReviewer in your next message. Do not create another PR.`;
-      }
-      
-      return response;
     } catch (error) {
       console.error('Error creating pull request:', error);
-      
-      // Make the error message more helpful
-      let errorMessage = error.message;
-      if (error.message && error.message.includes('Validation Failed') && error.message.includes('head')) {
-        errorMessage = `⚠️ CRITICAL WORKFLOW ERROR: Invalid branch name '${params.head}'. 
-You MUST follow this exact workflow:
-1. First create a branch with createBranch({name: "${params.head}"})
-2. Then commit your changes with createCommit({files: [...], branch: "${params.head}"})
-3. Only then create a PR with createPullRequest`;
-      }
-      
       return {
         success: false,
-        error: errorMessage
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
   }
@@ -483,7 +375,7 @@ The implementation has been tested with various inputs and edge cases.`;
               return {
                 ...response,
                 auto_created_pr: prResult,
-                workflow_hint: `Branch created, code committed, and PR #${prResult.pr_number} opened automatically. The GitHub workflow is now complete! 🎉`
+                workflow_hint: `Branch created, code committed, and PR #${prResult.pull_request_number} opened automatically. The GitHub workflow is now complete! 🎉`
               };
             }
           } catch (error) {
@@ -500,12 +392,12 @@ The implementation has been tested with various inputs and edge cases.`;
         if (!branchExists && branchName !== 'main') {
           return {
             success: false,
-            error: `❌ Failed to commit to newly created branch ${branchName}. Error: ${commitError.message}`
+            error: `❌ Failed to commit to newly created branch ${branchName}. Error: ${commitError instanceof Error ? commitError.message : 'Unknown error'}`
           };
         } else {
           return {
             success: false,
-            error: commitError.message
+            error: commitError instanceof Error ? commitError.message : 'Unknown error'
           };
         }
       }
@@ -513,7 +405,7 @@ The implementation has been tested with various inputs and edge cases.`;
       console.error('Error in createCommit function:', error);
       return {
         success: false,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -545,7 +437,7 @@ export const createReviewFunction: AgentFunction = {
       description: 'Optional array of comments to make on the pull request' 
     }
   },
-  handler: async (params, agentId) => {
+  handler: async (params, _agentId) => {
     try {
       const result = await githubService.createReview(
         params.pull_number,
@@ -565,7 +457,7 @@ export const createReviewFunction: AgentFunction = {
       console.error('Error creating review:', error);
       return {
         success: false,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -576,7 +468,7 @@ export const getRepositoryInfoFunction: AgentFunction = {
   name: 'getRepositoryInfo',
   description: 'Gets information about the GitHub repository. This must be called first before accessing issues or creating branches.',
   parameters: {},
-  handler: async (params, agentId) => {
+  handler: async (_params, agentId) => {
     try {
       console.log(`Agent ${agentId} is retrieving repository information`);
       const result = await githubService.getRepository();
@@ -612,7 +504,7 @@ export const getRepositoryInfoFunction: AgentFunction = {
         
         try {
           // Call getIssue directly
-          const issueResult = await getIssueFunction.handler({ number: issueNumber }, agentId);
+          const issueResult = await getIssueFunction.handler({ issueNumber }, agentId);
           
           // If successful, return combined response
           if (issueResult.success) {
@@ -633,195 +525,32 @@ export const getRepositoryInfoFunction: AgentFunction = {
       console.error('Error getting repository info:', error);
       return {
         success: false,
-        error: error.message,
+        error: error instanceof Error ? error.message : 'Unknown error',
         workflow_hint: "Please check your GitHub token and repository configuration in the .env file."
       };
     }
   }
 };
 
-// Get Issue Function with fallback to mock data for issue #3
+// Get Issue Function
 export const getIssueFunction: AgentFunction = {
   name: 'getIssue',
-  description: 'Gets information about a specific GitHub issue by number. Requires getRepositoryInfo to be called first.',
+  description: 'Gets an issue from the GitHub repository',
   parameters: {
-    number: { type: 'number', description: 'The issue number to retrieve' }
+    issueNumber: { type: 'number', description: 'The issue number to retrieve' }
   },
-  handler: async (params, agentId) => {
+  handler: async (params, _agentId) => {
     try {
-      console.log(`Agent ${agentId} is retrieving issue #${params.number}`);
-      
-      // Check if getRepositoryInfo was called first
-      if (!workflowState.getRepositoryInfoCalled) {
-        return {
-          success: false,
-          error: "Repository information not loaded",
-          workflow_hint: "You must first call getRepositoryInfo() before getting issue details."
-        };
-      }
-      
-      // Validate issue number
-      if (!params.number || isNaN(params.number) || params.number < 1) {
-        return {
-          success: false,
-          error: `Invalid issue number: ${params.number}. Issue numbers must be positive integers.`,
-          workflow_hint: "Check that you're providing a valid issue number."
-        };
-      }
-      
-      // Special case for issue #3 - always use the mock data if accessing issue #3
-      if (params.number === 3) {
-        console.log(`Using mock data for issue #3 since it's frequently requested`);
-        workflowState.currentIssueNumber = 3;
-        
-        return {
-          success: true,
-          ...mockIssue3,
-          implementation_guide: `
-Implementation guide for issue #3 (User Authentication System):
-
-1. First, create a branch named "feature-issue-3"
-2. Implement the authentication system with the following components:
-   - User model with email, password (hashed), and other necessary fields
-   - Registration endpoint with input validation
-   - Login endpoint that generates JWT tokens
-   - Middleware for protecting routes
-   - Logout functionality
-
-3. Key files you'll need to create or modify:
-   - auth/authController.js - For handling login/registration requests
-   - auth/authMiddleware.js - For protecting routes
-   - models/User.js - For the user data model
-   - utils/validation.js - For input validation
-   - utils/jwtHelper.js - For JWT handling
-
-4. Remember to include appropriate error handling and validation
-5. Create tests for the functionality
-6. Submit your changes via Pull Request
-
-Coding Style Guidelines:
-- Use async/await for asynchronous operations
-- Add proper error handling with try/catch blocks
-- Document your code with JSDoc comments
-- Follow the existing project structure
-`,
-          workflow_hint: `
-IMPORTANT NEXT STEPS:
-1. Call createBranch({name: "feature-issue-3"})
-2. Then implement the code changes with createCommit()
-3. Finally create a pull request with createPullRequest()
-`
-        };
-      }
-      
-      // Try to get the real issue data
-      try {
-        const result = await githubService.getIssue(params.number);
-        
-        console.log(`Successfully retrieved issue #${params.number}: ${result.title}`);
-        
-        // Set the current issue number in the workflow state
-        workflowState.currentIssueNumber = params.number;
-        
-        // Check if this is issue #3 and provide specific implementation guidance
-        let implementationGuide = "";
-        let nextSteps = `Next step: Create a branch using createBranch({name: "feature-issue-${result.number}"})`;
-        
-        // Create response object
-        const response = {
-          success: true,
-          number: result.number,
-          title: result.title,
-          body: result.body,
-          html_url: result.html_url,
-          state: result.state,
-          assignees: result.assignees,
-          labels: result.labels,
-          implementation_guide: implementationGuide,
-          workflow_hint: nextSteps
-        };
-        
-        // Add auto-progression to createBranch if enabled
-        if (workflowState.autoProgressWorkflow) {
-          console.log(`Auto-progressing workflow to create branch for issue #${params.number}`);
-          
-          try {
-            // Generate a branch name based on the issue number
-            const branchName = `feature-issue-${params.number}`;
-            
-            // Call createBranch directly
-            const branchResult = await createBranchFunction.handler({ name: branchName }, agentId);
-            
-            // If successful, return combined response
-            if (branchResult.success) {
-              return {
-                ...response,
-                auto_created_branch: branchResult,
-                workflow_hint: `Branch '${branchName}' created automatically. Next step: Implement your changes and use createCommit() to commit them.`
-              };
-            }
-          } catch (error) {
-            console.error(`Error auto-creating branch for issue #${params.number}:`, error);
-            // On error, just return the issue info and let the agent handle it manually
-          }
-        }
-        
-        return response;
-      } catch (error) {
-        // If this is issue #3, use the mock data as a fallback
-        if (params.number === 3) {
-          console.log(`Falling back to mock data for issue #3 due to error: ${error.message}`);
-          workflowState.currentIssueNumber = 3;
-          
-          return {
-            success: true,
-            ...mockIssue3,
-            implementation_guide: `
-Implementation guide for issue #3 (User Authentication System):
-
-1. First, create a branch named "feature-issue-3"
-2. Implement the authentication system with the following components:
-   - User model with email, password (hashed), and other necessary fields
-   - Registration endpoint with input validation
-   - Login endpoint that generates JWT tokens
-   - Middleware for protecting routes
-   - Logout functionality
-
-3. Key files you'll need to create or modify:
-   - auth/authController.js - For handling login/registration requests
-   - auth/authMiddleware.js - For protecting routes
-   - models/User.js - For the user data model
-   - utils/validation.js - For input validation
-   - utils/jwtHelper.js - For JWT handling
-
-4. Remember to include appropriate error handling and validation
-5. Create tests for the functionality
-6. Submit your changes via Pull Request
-
-Coding Style Guidelines:
-- Use async/await for asynchronous operations
-- Add proper error handling with try/catch blocks
-- Document your code with JSDoc comments
-- Follow the existing project structure
-`,
-            workflow_hint: `
-IMPORTANT NEXT STEPS:
-1. Call createBranch({name: "feature-issue-3"})
-2. Then implement the code changes with createCommit()
-3. Finally create a pull request with createPullRequest()
-`
-          };
-        }
-        
-        // For other issues, handle the error normally
-        throw error;
-      }
+      const issue = await githubService.getIssue(params.issueNumber);
+      return {
+        success: true,
+        issue
+      };
     } catch (error) {
-      console.error(`Error getting issue #${params.number}:`, error);
+      console.error('Error getting issue:', error);
       return {
         success: false,
-        error: error.message,
-        workflow_hint: "There was an error retrieving the issue. Please check that the issue number is correct and that you have permissions to access it."
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
   }
@@ -832,155 +561,21 @@ export const createBranchFunction: AgentFunction = {
   name: 'createBranch',
   description: 'Creates a new branch in the GitHub repository',
   parameters: {
-    name: { type: 'string', description: 'The name of the new branch' },
-    source: { type: 'string', description: 'Optional source branch to create from (defaults to main)' }
+    name: { type: 'string', description: 'The name of the branch to create' }
   },
-  handler: async (params, agentId) => {
+  handler: async (params, _agentId) => {
     try {
-      console.log(`Agent ${agentId} is creating branch: ${params.name}`);
-      
-      const result = await githubService.createBranch(
-        params.name,
-        params.source || 'main'
-      );
-      
-      // Create the success response
-      const response = {
+      const result = await githubService.createBranch(params.name);
+      return {
         success: true,
-        ref: result.ref,
-        sha: result.object.sha,
-        message: `Branch ${params.name} created successfully`,
-        workflow_hint: `Next step: Implement your code changes with createCommit({files: [...], branch: "${params.name}"})`
+        branch: result.name,
+        message: `Branch ${result.name} created successfully`
       };
-      
-      // Check if this is part of the issue workflow
-      if (workflowState.currentIssueNumber && workflowState.autoProgressWorkflow) {
-        console.log(`Auto-progressing workflow to create sample commit for issue #${workflowState.currentIssueNumber}`);
-        
-        try {
-          // For now, let's create a sample fibonacci implementation
-          const issueNumber = workflowState.currentIssueNumber;
-          const commitMessage = `Implement solution for issue #${issueNumber}`;
-          
-          // Create a simple implementation for issue #26 (Fibonacci)
-          const files = [
-            {
-              path: 'fibonacci.js',
-              content: `/**
- * Fibonacci Sequence API implementation
- * 
- * This file provides functions for working with the Fibonacci sequence.
- * Issue #${issueNumber}
- */
-
-/**
- * Calculate the nth Fibonacci number
- * @param {number} n - The position in the sequence (starting from 0)
- * @returns {number} The nth Fibonacci number
- */
-function fibonacci(n) {
-  if (n < 0) throw new Error('Input must be a non-negative integer');
-  if (n === 0) return 0;
-  if (n === 1) return 1;
-  
-  let a = 0;
-  let b = 1;
-  let result;
-  
-  for (let i = 2; i <= n; i++) {
-    result = a + b;
-    a = b;
-    b = result;
-  }
-  
-  return b;
-}
-
-/**
- * Generate a Fibonacci sequence up to n terms
- * @param {number} n - Number of terms to generate
- * @returns {number[]} Array of Fibonacci numbers
- */
-function generateFibonacciSequence(n) {
-  if (n < 0) throw new Error('Input must be a non-negative integer');
-  
-  const sequence = [];
-  for (let i = 0; i < n; i++) {
-    sequence.push(fibonacci(i));
-  }
-  
-  return sequence;
-}
-
-// Export functions
-module.exports = {
-  fibonacci,
-  generateFibonacciSequence
-};
-`
-            },
-            {
-              path: 'README.md',
-              content: `# Fibonacci Sequence API
-
-This repository contains a simple implementation of the Fibonacci sequence.
-
-## Functions
-
-\`\`\`js
-// Calculate the nth Fibonacci number (0-indexed)
-fibonacci(n)
-
-// Generate a sequence of Fibonacci numbers up to n terms
-generateFibonacciSequence(n)
-\`\`\`
-
-## Example
-
-\`\`\`js
-const { fibonacci, generateFibonacciSequence } = require('./fibonacci');
-
-// Get the 10th Fibonacci number
-console.log(fibonacci(10)); // Output: 55
-
-// Generate the first 10 Fibonacci numbers
-console.log(generateFibonacciSequence(10)); // Output: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]
-\`\`\`
-
-## Issue Reference
-
-This implementation fulfills issue #${issueNumber}.
-`
-            }
-          ];
-          
-          // Call createCommit directly
-          const commitResult = await createCommitFunction.handler({
-            message: commitMessage,
-            files: files,
-            branch: params.name
-          }, agentId);
-          
-          // If successful, return combined response
-          if (commitResult.success) {
-            return {
-              ...response,
-              auto_created_commit: commitResult,
-              workflow_hint: `Branch '${params.name}' created and sample code committed automatically. Next step: Review the code and create a pull request with createPullRequest().`
-            };
-          }
-        } catch (error) {
-          console.error(`Error auto-creating commit for issue #${workflowState.currentIssueNumber}:`, error);
-          // On error, just return the branch info and let the agent handle it manually
-        }
-      }
-      
-      return response;
     } catch (error) {
       console.error('Error creating branch:', error);
       return {
         success: false,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
   }
@@ -998,32 +593,18 @@ export const listIssuesFunction: AgentFunction = {
       default: 'open'
     }
   },
-  handler: async (params, agentId) => {
+  handler: async (params, _agentId) => {
     try {
-      console.log(`Agent ${agentId} is listing issues with state: ${params.state || 'open'}`);
-      
-      const options = {
-        state: params.state || 'open',
-        per_page: 10
-      };
-      
-      const issues = await githubService.listIssues(options);
-      
+      const issues = await githubService.listIssues(params.state || 'open');
       return {
         success: true,
-        total_count: issues.length,
-        issues: issues.map(issue => ({
-          number: issue.number,
-          title: issue.title,
-          state: issue.state,
-          html_url: issue.html_url
-        }))
+        issues
       };
     } catch (error) {
       console.error('Error listing issues:', error);
       return {
         success: false,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       };
     }
   }
@@ -1037,17 +618,18 @@ export const debugFunction: AgentFunction = {
     message: { type: 'string', description: 'Optional debug message' }
   },
   handler: async (params, agentId) => {
-    console.log(`Debug function called by agent ${agentId}: ${params.message || 'No message provided'}`);
-    
-    return {
-      success: true,
-      message: params.message || 'Debug function called',
-      workflow_state: {
-        repositoryInfoLoaded: workflowState.getRepositoryInfoCalled
-      },
-      workflow_reminder: 'Remember to follow the exact workflow: 1) getRepositoryInfo, 2) getIssue or listIssues, 3) createBranch, 4) createCommit, 5) createPullRequest',
-      timestamp: new Date().toISOString()
-    };
+    try {
+      console.log(`Debug function called by agent ${agentId}: ${params.message || 'No message provided'}`);
+      return {
+        success: true,
+        message: params.message || 'Debug function called successfully'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   }
 };
 

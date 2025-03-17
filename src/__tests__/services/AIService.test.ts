@@ -3,6 +3,8 @@ import { Agent, AgentRole, AgentFunction } from '@/types/agents/Agent';
 import { OpenAIMessage } from '@/types/openai/OpenAITypes';
 import { FunctionRegistry } from '@/services/ai/FunctionRegistry';
 import { LangChainExecutor } from '@/services/ai/LangChainIntegration';
+import { ConversationManager } from '@/services/ConversationManager';
+import { LoopDetector } from '@/services/agents/LoopDetector';
 
 // Mock LangChain integration to avoid actual API calls
 jest.mock('@/services/ai/LangChainIntegration', () => {
@@ -38,15 +40,39 @@ jest.mock('@/services/ai/LangChainIntegration', () => {
   };
 });
 
+// Mock OpenAI
+jest.mock('openai', () => {
+  const MockOpenAI = jest.fn().mockImplementation(() => ({
+    chat: {
+      completions: {
+        create: jest.fn().mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: 'Mock response',
+                function_calls: []
+              }
+            }
+          ]
+        })
+      }
+    }
+  }));
+  return { OpenAI: MockOpenAI };
+});
+
 // Mock config
 jest.mock('@/config/config', () => ({
   config: {
     openai: {
-      apiKey: 'mock-api-key',
+      apiKey: 'sk-test-1234567890abcdef1234567890abcdef',
       models: {
-        default: 'gpt-4o',
-        assistant: 'gpt-4o'
+        default: 'gpt-4',
+        assistant: 'gpt-4'
       }
+    },
+    features: {
+      useLangChain: true
     }
   }
 }));
@@ -54,6 +80,8 @@ jest.mock('@/config/config', () => ({
 describe('AIService', () => {
   let aiService: AIService;
   let mockFunctionRegistry: FunctionRegistry;
+  let mockConversationManager: ConversationManager;
+  let mockLoopDetector: LoopDetector;
   
   const mockFunction: AgentFunction = {
     name: 'testFunction',
@@ -96,6 +124,16 @@ describe('AIService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     
+    // Create mock dependencies
+    mockConversationManager = {
+      getConversationHistory: jest.fn().mockResolvedValue([]),
+      updateConversationHistory: jest.fn().mockResolvedValue(undefined)
+    } as unknown as ConversationManager;
+
+    mockLoopDetector = {
+      recordAction: jest.fn().mockReturnValue(false)
+    } as unknown as LoopDetector;
+    
     // Create a real function registry with mocked methods
     mockFunctionRegistry = new FunctionRegistry();
     
@@ -121,9 +159,12 @@ describe('AIService', () => {
       data: { result: 'success' }
     });
     
-    // Create a new AIService and inject the mocked function registry
-    aiService = new AIService();
-    aiService.setFunctionRegistry(mockFunctionRegistry);
+    // Create a new AIService with required dependencies
+    aiService = new AIService(
+      mockConversationManager,
+      mockLoopDetector,
+      mockFunctionRegistry
+    );
     
     // Register the mock function
     aiService.registerFunction(mockFunction);
@@ -141,7 +182,7 @@ describe('AIService', () => {
         mockConversationHistory
       );
 
-      expect(result).toHaveProperty('response', 'This is a test response');
+      expect(result).toHaveProperty('response', 'This is a test response\n\n--- Function Call Results ---\nFunction testFunction was called with {"param1":"value1","param2":"value2"} and returned: {"result":"success"}');
       expect(result).toHaveProperty('functionCalls');
       expect(result.functionCalls.length).toBe(1);
       expect(result.functionCalls[0]).toHaveProperty('name', 'testFunction');
@@ -209,19 +250,6 @@ describe('AIService', () => {
         { param: 'test' }, 
         'test-agent'
       );
-    });
-  });
-  
-  describe('generateText', () => {
-    it('should generate text using LangChain', async () => {
-      const result = await aiService.generateText(
-        'openai',
-        'gpt-4',
-        'You are a helpful assistant',
-        'Tell me a joke'
-      );
-      
-      expect(result).toBe('This is a test response');
     });
   });
 }); 

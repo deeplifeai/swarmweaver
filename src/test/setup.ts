@@ -1,3 +1,6 @@
+// Import OpenAI shim for Node.js environment
+import 'openai/shims/node';
+
 // Import setImmediate polyfill
 import 'setimmediate';
 

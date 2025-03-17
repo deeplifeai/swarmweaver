@@ -2,6 +2,45 @@ import { AIService } from '../AIService';
 import { Agent, AgentRole, AgentFunction } from '@/types/agents/Agent';
 import { OpenAIMessage } from '@/types/openai/OpenAITypes';
 import { FunctionRegistry } from '../FunctionRegistry';
+import { ConversationManager } from '../../ConversationManager';
+import { LoopDetector } from '../../agents/LoopDetector';
+
+// Mock config
+jest.mock('@/config/config', () => ({
+  config: {
+    openai: {
+      apiKey: 'sk-test-1234567890abcdef1234567890abcdef',
+      models: {
+        default: 'gpt-4',
+        assistant: 'gpt-4'
+      }
+    },
+    features: {
+      useLangChain: true
+    }
+  }
+}));
+
+// Mock OpenAI
+jest.mock('openai', () => {
+  const MockOpenAI = jest.fn().mockImplementation(() => ({
+    chat: {
+      completions: {
+        create: jest.fn().mockResolvedValue({
+          choices: [
+            {
+              message: {
+                content: 'Mock response',
+                function_calls: []
+              }
+            }
+          ]
+        })
+      }
+    }
+  }));
+  return { OpenAI: MockOpenAI };
+});
 
 // Mock LangChain integration
 jest.mock('../LangChainIntegration', () => {
@@ -26,6 +65,8 @@ jest.mock('../LangChainIntegration', () => {
 describe('AI Service', () => {
   let aiService: AIService;
   let mockFunctionRegistry: FunctionRegistry;
+  let mockConversationManager: ConversationManager;
+  let mockLoopDetector: LoopDetector;
   
   const mockAgent: Agent = {
     id: 'test-agent',
@@ -51,12 +92,24 @@ describe('AI Service', () => {
     // Reset mocks before each test
     jest.clearAllMocks();
     
-    // Create a new instance of AIService for each test
-    aiService = new AIService();
-    
-    // Create a real function registry with mocked methods
+    // Create mock dependencies
+    mockConversationManager = {
+      getConversationHistory: jest.fn().mockResolvedValue([]),
+      updateConversationHistory: jest.fn().mockResolvedValue(undefined)
+    } as unknown as ConversationManager;
+
+    mockLoopDetector = {
+      recordAction: jest.fn().mockReturnValue(false)
+    } as unknown as LoopDetector;
+
     mockFunctionRegistry = new FunctionRegistry();
-    aiService.setFunctionRegistry(mockFunctionRegistry);
+    
+    // Create a new instance of AIService for each test
+    aiService = new AIService(
+      mockConversationManager,
+      mockLoopDetector,
+      mockFunctionRegistry
+    );
 
     // Reset the LangChain executor mock
     const { createLangChainExecutor } = require('../LangChainIntegration');
@@ -89,10 +142,8 @@ describe('AI Service', () => {
 
     it('should handle errors gracefully', async () => {
       // Mock the LangChain executor to throw an error
-      const { createLangChainExecutor } = require('../LangChainIntegration');
-      createLangChainExecutor.mockReturnValue({
-        run: jest.fn().mockRejectedValue(new Error('API Error'))
-      });
+      const { runWithLangChain } = require('../LangChainIntegration');
+      runWithLangChain.mockRejectedValueOnce(new Error('API Error'));
 
       await expect(aiService.generateAgentResponse(
         mockAgent,
@@ -127,67 +178,6 @@ describe('AI Service', () => {
       });
 
       expect(() => aiService.registerFunction(invalidFunction)).toThrow('Invalid function name');
-    });
-  });
-
-  describe('Text Generation', () => {
-    it('should generate text with proper context', async () => {
-      // Reset the LangChain executor mock for this test
-      const { createLangChainExecutor } = require('../LangChainIntegration');
-      createLangChainExecutor.mockReturnValue({
-        run: jest.fn().mockResolvedValue({
-          output: 'Mock response',
-          toolCalls: [],
-          error: false
-        })
-      });
-
-      const result = await aiService.generateText(
-        'openai',
-        'gpt-4',
-        'You are a helpful assistant',
-        'Tell me a joke'
-      );
-
-      expect(result).toBe('Mock response');
-    });
-
-    it('should handle provider-specific configurations', async () => {
-      // Reset the LangChain executor mock for this test
-      const { createLangChainExecutor } = require('../LangChainIntegration');
-      createLangChainExecutor.mockReturnValue({
-        run: jest.fn().mockResolvedValue({
-          output: 'Mock response',
-          toolCalls: [],
-          error: false
-        })
-      });
-
-      const result = await aiService.generateText(
-        'perplexity',
-        'pplx-7b-online',
-        'You are a helpful assistant',
-        'Tell me a joke'
-      );
-
-      expect(result).toBe('Mock response');
-    });
-
-    it('should handle text generation errors gracefully', async () => {
-      // Mock the LangChain executor to throw an error
-      const { createLangChainExecutor } = require('../LangChainIntegration');
-      createLangChainExecutor.mockReturnValue({
-        run: jest.fn().mockRejectedValue(new Error('API Error'))
-      });
-
-      const result = await aiService.generateText(
-        'openai',
-        'gpt-4',
-        'You are a helpful assistant',
-        'Tell me a joke'
-      );
-
-      expect(result).toContain('Error generating text');
     });
   });
 }); 

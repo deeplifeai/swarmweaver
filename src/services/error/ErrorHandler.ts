@@ -1,5 +1,5 @@
 import { singleton } from 'tsyringe';
-import { log } from '../logging/LoggingService';
+import { LoggingServiceFactory } from '../logging/LoggingServiceFactory';
 
 /**
  * Error types for categorization
@@ -153,10 +153,11 @@ const DEFAULT_RETRY_OPTIONS: RetryOptions = {
 };
 
 /**
- * Centralized error handling service
+ * Global error handler service
  */
 @singleton()
 export class ErrorHandler {
+  private logger = LoggingServiceFactory.getInstance();
   private jitterFactor: number = 0.1; // Default to 0.1 (10% jitter)
 
   /**
@@ -168,28 +169,26 @@ export class ErrorHandler {
   }
 
   /**
-   * Handle an error with logging and optional reporting
-   * @param error Error to handle
+   * Handle an error
+   * @param error Error object or message
    * @param context Additional context
    */
-  public handleError(error: Error | AppError, context?: Partial<ErrorContext>): void {
-    const appError = this.normalizeError(error, context);
-    
-    // Log the error with context
-    log.error(`[${appError.type}] ${appError.message}`, {
-      errorType: appError.type,
-      context: appError.context,
-      stack: appError.stack,
-      originalError: appError.originalError ? {
-        message: appError.originalError.message,
-        stack: appError.originalError.stack
-      } : undefined
-    });
-    
-    // Here you could add additional error reporting to external services
-    // like Sentry, Datadog, etc.
+  public handleError(error: Error | string, context?: any): void {
+    const errorMessage = error instanceof Error ? error.message : error;
+    this.logger.error(errorMessage, { context, stack: error instanceof Error ? error.stack : undefined });
   }
-  
+
+  /**
+   * Handle an error and return a user-friendly message
+   * @param error Error object or message
+   * @param context Additional context
+   * @returns User-friendly error message
+   */
+  public handleErrorWithMessage(error: Error | string, context?: any): string {
+    this.handleError(error, context);
+    return 'An unexpected error occurred. Please try again later.';
+  }
+
   /**
    * Convert any error to an AppError
    * @param error Original error
@@ -293,7 +292,7 @@ export class ErrorHandler {
         );
         const jitteredDelay = delay * (1 + this.jitterFactor); // Fixed jitter for testing
         
-        log.warn(`Retry attempt ${attempt}/${retryOptions.maxRetries} after ${Math.round(jitteredDelay)}ms`, {
+        this.logger.warn(`Retry attempt ${attempt}/${retryOptions.maxRetries} after ${Math.round(jitteredDelay)}ms`, {
           errorType: appError.type,
           errorMessage: appError.message,
           retryAttempt: attempt,

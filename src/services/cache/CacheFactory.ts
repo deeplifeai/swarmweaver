@@ -1,49 +1,20 @@
-import { RedisCacheService } from './RedisCacheService';
-import { MemoryCacheService } from './MemoryCacheService';
-import { config } from '@/config/config';
-import { AIModel, AIProvider } from '@/types/agent';
+import { CacheServiceFactory, ICacheService } from './CacheServiceFactory';
 
 /**
- * Interface for cache services
- */
-export interface CacheService {
-  setEnabled(enabled: boolean): void;
-  isEnabled(): boolean;
-  cacheResponse(provider: AIProvider, model: AIModel, systemPrompt: string, userPrompt: string, response: string): Promise<void>;
-  getCachedResponse(provider: AIProvider, model: AIModel, systemPrompt: string, userPrompt: string): Promise<string | null>;
-  clearCache(): Promise<void>;
-  getCacheSize(): Promise<number>;
-}
-
-/**
- * Factory class that creates the appropriate cache service based on config
+ * Factory class to get the appropriate cache service implementation
+ * @deprecated Use CacheServiceFactory instead
  */
 export class CacheFactory {
-  private static instance: CacheService;
-  
+  private static instance: ICacheService;
+
   /**
-   * Get the singleton cache service instance
+   * Get the appropriate cache service instance
+   * @deprecated Use CacheServiceFactory.getInstance() instead
    */
-  public static getInstance(): CacheService {
+  public static getInstance(): ICacheService {
     if (!CacheFactory.instance) {
-      // Determine which cache implementation to use based on configuration
-      if (config.redis.enabled && config.redis.url) {
-        try {
-          // Use Redis cache if enabled and configured
-          CacheFactory.instance = RedisCacheService.getInstance();
-          console.info('Using Redis cache service');
-        } catch (error) {
-          // Fallback to memory cache if Redis initialization fails
-          console.error('Failed to initialize Redis cache, falling back to memory cache:', error);
-          CacheFactory.instance = MemoryCacheService.getInstance();
-        }
-      } else {
-        // Use memory cache if Redis is not enabled
-        CacheFactory.instance = MemoryCacheService.getInstance();
-        console.info('Using in-memory cache service (Redis is disabled)');
-      }
+      CacheFactory.instance = CacheServiceFactory.getInstance();
     }
-    
     return CacheFactory.instance;
   }
 } 

@@ -9,9 +9,11 @@
     "build:dev": "vite build --mode development",
     "build:server": "tsc -p tsconfig.server.json && echo '{\"type\":\"module\"}' > dist/package.json",
     "build:all": "npm run build && npm run build:server",
+    "build:slack": "tsc -p tsconfig.slack.json && echo '{\"type\":\"module\"}' > dist/package.json",
     "clean": "rimraf dist",
     "prebuild": "npm run clean",
     "prebuild:server": "npm run clean",
+    "prebuild:slack": "npm run clean",
     "patch": "node patch-exports.js",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -19,6 +21,7 @@
     "test:watch": "jest --watch",
     "start": "npm run build:server && node -r ./register-aliases.cjs dist/index.js",
     "start:simple": "npm run build:server && node -r ./register-aliases.cjs dist/simple_bot.js",
+    "start:slack": "npm run build:slack && node -r ./register-aliases.cjs dist/slack-bot.js",
     "test:langchain": "ts-node -r tsconfig-paths/register src/scripts/testLangChainIntegration.ts"
   },
   "dependencies": {
@@ -116,6 +119,7 @@
     "postcss": "^8.4.47",
     "rimraf": "^6.0.1",
     "tailwindcss": "^3.4.11",
+    "terser": "^5.39.0",
     "ts-jest": "^29.2.6",
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
